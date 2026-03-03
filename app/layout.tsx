@@ -1,14 +1,16 @@
 import type { Metadata } from 'next'
-import { Geist, Geist_Mono } from 'next/font/google'
+import { Inter } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
+import { MuiThemeProvider } from '@/components/mui-theme-provider'
+import { AppShell } from '@/components/app-shell'
+import { AppProvider } from '@/lib/app-context'
 import './globals.css'
 
-const _geist = Geist({ subsets: ["latin"] });
-const _geistMono = Geist_Mono({ subsets: ["latin"] });
+const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
 export const metadata: Metadata = {
-  title: 'v0 App',
-  description: 'Created with v0',
+  title: 'LegalDocs Pro - Document Automation',
+  description: 'Professional document automation for UK law firms',
   generator: 'v0.app',
   icons: {
     icon: [
@@ -36,8 +38,12 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="font-sans antialiased">
-        {children}
+      <body className={`${inter.variable} font-sans antialiased`}>
+        <MuiThemeProvider>
+          <AppProvider>
+            <AppShell>{children}</AppShell>
+          </AppProvider>
+        </MuiThemeProvider>
         <Analytics />
       </body>
     </html>
