@@ -192,8 +192,16 @@ export default function PhraseBankPage() {
       </Paper>
 
       {/* Add/Edit Dialog */}
-      <Dialog open={dialogOpen} onClose={handleCloseDialog} maxWidth="md" fullWidth>
-        <DialogTitle sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <Dialog 
+        open={dialogOpen} 
+        onClose={handleCloseDialog} 
+        maxWidth="md" 
+        fullWidth
+        PaperProps={{
+          sx: { maxHeight: "90vh" }
+        }}
+      >
+        <DialogTitle sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", pb: 2 }}>
           <Typography variant="h6" sx={{ fontWeight: 600 }}>
             {editingPhrase ? "Edit Phrase" : "Add New Phrase"}
           </Typography>
@@ -201,8 +209,8 @@ export default function PhraseBankPage() {
             <X size={20} />
           </IconButton>
         </DialogTitle>
-        <DialogContent dividers>
-          <Grid container spacing={3} sx={{ pt: 1 }}>
+        <DialogContent dividers sx={{ overflow: "auto" }}>
+          <Grid container spacing={3} sx={{ pt: 1, minWidth: 0 }}>
             <Grid size={{ xs: 12 }}>
               <TextField
                 fullWidth
@@ -229,10 +237,15 @@ export default function PhraseBankPage() {
                   value={formData.offenceTags}
                   label="Offence Tags"
                   onChange={(e) => setFormData({ ...formData, offenceTags: e.target.value as string[] })}
+                  MenuProps={{
+                    PaperProps: {
+                      sx: { maxHeight: 300 }
+                    }
+                  }}
                   renderValue={(selected) => (
-                    <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
+                    <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", maxHeight: 60, overflow: "hidden" }}>
                       {selected.map((tag) => (
-                        <Chip key={tag} label={tag} size="small" />
+                        <Chip key={tag} label={tag} size="small" sx={{ height: 24 }} />
                       ))}
                     </Box>
                   )}

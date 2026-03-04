@@ -10,7 +10,7 @@ import {
   Grid,
   Chip,
 } from "@mui/material";
-import { FileText } from "lucide-react";
+import { FileText, Plus, Settings } from "lucide-react";
 import { useAppContext } from "@/lib/app-context";
 import Link from "next/link";
 
@@ -20,13 +20,24 @@ export default function TemplatesPage() {
   return (
     <Box>
       {/* Page Header */}
-      <Box sx={{ mb: 4 }}>
-        <Typography variant="h4" sx={{ fontWeight: 600, mb: 1, color: "#1A1A1A" }}>
-          Templates
-        </Typography>
-        <Typography variant="body1" sx={{ color: "#666666" }}>
-          Select a template to create a new document.
-        </Typography>
+      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 4 }}>
+        <Box>
+          <Typography variant="h4" sx={{ fontWeight: 600, mb: 1, color: "#1A1A1A" }}>
+            Templates
+          </Typography>
+          <Typography variant="body1" sx={{ color: "#666666" }}>
+            Select a template to create a new document.
+          </Typography>
+        </Box>
+        <Button
+          component={Link}
+          href="/templates/manage"
+          variant="contained"
+          color="primary"
+          startIcon={<Plus size={18} />}
+        >
+          Add Template
+        </Button>
       </Box>
 
       {/* Template Grid */}

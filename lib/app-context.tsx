@@ -12,11 +12,18 @@ export interface Document {
   status: "Draft" | "Complete" | "Pending Review";
 }
 
+export interface TemplateField {
+  name: string;
+  type: string;
+  placeholder: string;
+}
+
 export interface Template {
   id: string;
   name: string;
   description: string;
   category: string;
+  fields?: TemplateField[];
 }
 
 export interface Phrase {
@@ -87,6 +94,9 @@ interface AppContextType {
   phrases: Phrase[];
   clients: Client[];
   addDocument: (doc: Omit<Document, "id">) => void;
+  addTemplate: (template: Omit<Template, "id">) => void;
+  updateTemplate: (id: string, template: Partial<Template>) => void;
+  deleteTemplate: (id: string) => void;
   addPhrase: (phrase: Omit<Phrase, "id">) => void;
   updatePhrase: (id: string, phrase: Partial<Phrase>) => void;
   deletePhrase: (id: string) => void;
@@ -97,12 +107,24 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [documents, setDocuments] = useState<Document[]>(mockDocuments);
-  const [templates] = useState<Template[]>(mockTemplates);
+  const [templates, setTemplates] = useState<Template[]>(mockTemplates);
   const [phrases, setPhrases] = useState<Phrase[]>(mockPhrases);
   const [clients, setClients] = useState<Client[]>(mockClients);
 
   const addDocument = (doc: Omit<Document, "id">) => {
     setDocuments((prev) => [...prev, { ...doc, id: String(prev.length + 1) }]);
+  };
+
+  const addTemplate = (template: Omit<Template, "id">) => {
+    setTemplates((prev) => [...prev, { ...template, id: String(Date.now()) }]);
+  };
+
+  const updateTemplate = (id: string, updates: Partial<Template>) => {
+    setTemplates((prev) => prev.map((t) => (t.id === id ? { ...t, ...updates } : t)));
+  };
+
+  const deleteTemplate = (id: string) => {
+    setTemplates((prev) => prev.filter((t) => t.id !== id));
   };
 
   const addPhrase = (phrase: Omit<Phrase, "id">) => {
@@ -129,6 +151,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         phrases,
         clients,
         addDocument,
+        addTemplate,
+        updateTemplate,
+        deleteTemplate,
         addPhrase,
         updatePhrase,
         deletePhrase,
