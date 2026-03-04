@@ -30,7 +30,7 @@ import {
   User,
 } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 const drawerWidth = 240;
 
@@ -48,8 +48,11 @@ interface AppShellProps {
   children: ReactNode;
 }
 
+const publicRoutes = ["/login", "/register", "/forgot-password"];
+
 export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
 
   const handleMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
@@ -59,6 +62,16 @@ export function AppShell({ children }: AppShellProps) {
   const handleMenuClose = () => {
     setAnchorEl(null);
   };
+
+  const handleSignOut = () => {
+    handleMenuClose();
+    router.push("/login");
+  };
+
+  // Don't render shell for public routes (login, register, etc.)
+  if (publicRoutes.some((route) => pathname.startsWith(route))) {
+    return <>{children}</>;
+  }
 
   return (
     <Box sx={{ display: "flex", minHeight: "100vh" }}>
@@ -207,7 +220,7 @@ export function AppShell({ children }: AppShellProps) {
                   <Settings size={16} style={{ marginRight: 12 }} />
                   Settings
                 </MenuItem>
-                <MenuItem onClick={handleMenuClose} sx={{ color: "#D32F2F" }}>
+                <MenuItem onClick={handleSignOut} sx={{ color: "#D32F2F" }}>
                   <LogOut size={16} style={{ marginRight: 12 }} />
                   Sign Out
                 </MenuItem>
