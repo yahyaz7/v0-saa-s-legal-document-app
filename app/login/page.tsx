@@ -16,16 +16,22 @@ import {
 } from "@mui/material";
 import { Eye, EyeOff, Scale, Mail, Lock } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { BookOpeningIntro } from "@/components/book-opening-intro";
 
 export default function LoginPage() {
   const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [showIntro, setShowIntro] = useState(false);
   const [formData, setFormData] = useState({
     email: "",
     password: "",
   });
+
+  const handleIntroComplete = () => {
+    router.push("/");
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,22 +41,32 @@ export default function LoginPage() {
     // Simulate login - will be replaced with Supabase auth
     setTimeout(() => {
       if (formData.email && formData.password) {
-        router.push("/");
+        setLoading(false);
+        setShowIntro(true);
       } else {
         setError("Please enter your email and password");
+        setLoading(false);
       }
-      setLoading(false);
     }, 1000);
   };
 
   return (
-    <Box
-      sx={{
-        minHeight: "100vh",
-        display: "flex",
-        bgcolor: "#F8F9FA",
-      }}
-    >
+    <>
+      {/* Book Opening Intro Animation */}
+      <BookOpeningIntro
+        isOpen={showIntro}
+        onComplete={handleIntroComplete}
+        firmName="Gray's Defence Solicitors"
+        accentColor="#B8860B"
+      />
+
+      <Box
+        sx={{
+          minHeight: "100vh",
+          display: "flex",
+          bgcolor: "#F8F9FA",
+        }}
+      >
       {/* Left Panel - Branding */}
       <Box
         sx={{
@@ -348,6 +364,7 @@ export default function LoginPage() {
           </Typography>
         </Box>
       </Box>
-    </Box>
+      </Box>
+    </>
   );
 }

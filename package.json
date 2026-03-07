@@ -15,6 +15,7 @@
     "@mui/x-data-grid": "^7.24.0",
     "@mui/x-date-pickers": "^7.24.0",
     "dayjs": "^1.11.13",
+    "framer-motion": "^11.15.0",
     "@hookform/resolvers": "^3.9.1",
     "@vercel/analytics": "1.6.1",
     "@radix-ui/react-accordion": "1.2.12",
