@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, ReactNode, useEffect } from "react";
+import { useState, useEffect, ReactNode } from "react";
 import {
   Box,
   Drawer,
@@ -89,7 +89,8 @@ export function AppShell({ children }: AppShellProps) {
   };
 
   // Don't render shell for public routes (login, register, etc.)
-  if (publicRoutes.some((route) => pathname.startsWith(route))) {
+  const isPublicRoute = publicRoutes.some((route) => pathname.startsWith(route));
+  if (isPublicRoute) {
     return <>{children}</>;
   }
 
