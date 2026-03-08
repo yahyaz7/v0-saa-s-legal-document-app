@@ -48,6 +48,10 @@ export async function saveDraft({
 /**
  * Load a single saved draft's form_data by id.
  * Returns null if the draft does not exist or is not owned by the user.
+ *
+ * Ownership is enforced by Supabase RLS (`auth.uid() = user_id`): a
+ * query for another user's draft id will return zero rows, causing
+ * `.single()` to error, and this function to return null.
  */
 export async function loadDraft(
   supabase: SupabaseClient,

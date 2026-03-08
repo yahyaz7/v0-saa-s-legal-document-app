@@ -266,6 +266,9 @@ function DocumentBuilderContent() {
     const current = (formValues[phraseTargetField] as string) ?? "";
     const updated = current.trim() ? `${current}\n\n${content}` : content;
     handleFieldChange(phraseTargetField, updated);
+    setSnackbarMessage("Phrase added to document.");
+    setSnackbarSeverity("success");
+    setSnackbarOpen(true);
   };
 
   /** When a textarea gains focus, auto-target the phrase panel to that field. */
