@@ -257,45 +257,51 @@ export default function LoginPage() {
               <form onSubmit={handleSubmit}>
                 <Box sx={{ display: "flex", flexDirection: "column", gap: 2.5 }}>
                   <TextField
+                    id="login-email"
                     fullWidth
                     label="Email address"
                     type="email"
                     value={formData.email}
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                     placeholder="you@lawfirm.co.uk"
-                    InputProps={{
-                      startAdornment: (
-                        <InputAdornment position="start">
-                          <Mail size={20} color="#9CA3AF" />
-                        </InputAdornment>
-                      ),
+                    slotProps={{
+                      input: {
+                        startAdornment: (
+                          <InputAdornment position="start">
+                            <Mail size={20} color="#9CA3AF" />
+                          </InputAdornment>
+                        ),
+                      },
                     }}
                   />
 
                   <TextField
+                    id="login-password"
                     fullWidth
                     label="Password"
                     type={showPassword ? "text" : "password"}
                     value={formData.password}
                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                     placeholder="Enter your password"
-                    InputProps={{
-                      startAdornment: (
-                        <InputAdornment position="start">
-                          <Lock size={20} color="#9CA3AF" />
-                        </InputAdornment>
-                      ),
-                      endAdornment: (
-                        <InputAdornment position="end">
-                          <IconButton
-                            onClick={() => setShowPassword(!showPassword)}
-                            edge="end"
-                            size="small"
-                          >
-                            {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
-                          </IconButton>
-                        </InputAdornment>
-                      ),
+                    slotProps={{
+                      input: {
+                        startAdornment: (
+                          <InputAdornment position="start">
+                            <Lock size={20} color="#9CA3AF" />
+                          </InputAdornment>
+                        ),
+                        endAdornment: (
+                          <InputAdornment position="end">
+                            <IconButton
+                              onClick={() => setShowPassword(!showPassword)}
+                              edge="end"
+                              size="small"
+                            >
+                              {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                            </IconButton>
+                          </InputAdornment>
+                        ),
+                      },
                     }}
                   />
 

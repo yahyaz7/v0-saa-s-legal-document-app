@@ -1,8 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-// Temporarily bypass auth to allow access
-// Will re-enable once admin user is created
-export async function middleware(request: NextRequest) {
+// Auth bypassed - all routes accessible
+export async function middleware(_request: NextRequest) {
   return NextResponse.next();
 }
 
