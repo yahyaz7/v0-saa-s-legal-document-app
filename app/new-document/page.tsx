@@ -25,7 +25,7 @@ import { useAppContext, ExtractedField } from "@/lib/app-context";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { DynamicField, TemplateFieldDef, FieldValue } from "@/components/dynamic-field";
-import { saveDraft } from "@/lib/drafts";
+import { saveDraft, loadDraft, DraftFormData } from "@/lib/drafts";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -62,6 +62,21 @@ function initFormValues(fields: TemplateFieldDef[]): FormValues {
   return values;
 }
 
+/**
+ * Overlay saved draft data onto a freshly-initialised FormValues object.
+ * Only keys that exist in the current template are applied, so stale keys
+ * from an old template version are silently ignored.
+ */
+function applyDraftData(base: FormValues, draft: DraftFormData): FormValues {
+  const result = { ...base };
+  for (const key of Object.keys(result)) {
+    if (draft[key] !== undefined) {
+      result[key] = draft[key] as FieldValue;
+    }
+  }
+  return result;
+}
+
 /** Returns the Grid column span for a field based on its type and section. */
 function fieldColSpan(field: TemplateFieldDef) {
   if (field.field_type === "repeater" || field.field_type === "textarea") {
@@ -78,6 +93,7 @@ function fieldColSpan(field: TemplateFieldDef) {
 function DocumentBuilderContent() {
   const searchParams = useSearchParams();
   const templateId = searchParams.get("template");
+  const draftParam = searchParams.get("draft"); // present when opening a saved draft
   const { phrases } = useAppContext();
 
   // Template metadata + fields from DB
@@ -93,8 +109,8 @@ function DocumentBuilderContent() {
   const [formValues, setFormValues] = useState<FormValues>({});
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
-  // Draft state
-  const [draftId, setDraftId] = useState<string | null>(null);
+  // Draft state — seed from URL so re-saves UPDATE the same row
+  const [draftId, setDraftId] = useState<string | null>(draftParam);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState("");
@@ -130,7 +146,9 @@ function DocumentBuilderContent() {
         .eq("template_id", templateId)
         .order("section_order")
         .order("field_order"),
-    ]).then(([userRes, templateRes, fieldsRes]) => {
+      // Load draft data when ?draft= is present in the URL
+      draftParam ? loadDraft(supabase, draftParam) : Promise.resolve(null),
+    ]).then(([userRes, templateRes, fieldsRes, draftData]) => {
       setUserId(userRes.data.user?.id ?? null);
 
       if (templateRes.error || !templateRes.data) {
@@ -141,11 +159,12 @@ function DocumentBuilderContent() {
         const fields = (fieldsRes.data ?? []) as TemplateFieldDef[];
         setTemplateName(templateRes.data.name);
         setTemplateFields(fields);
-        setFormValues(initFormValues(fields));
+        const base = initFormValues(fields);
+        setFormValues(draftData ? applyDraftData(base, draftData) : base);
       }
       setLoading(false);
     });
-  }, [templateId]);
+  }, [templateId, draftParam]);
 
   // ── Section grouping ───────────────────────────────────────────────────────
   const sections = useMemo(() => {
@@ -272,7 +291,7 @@ function DocumentBuilderContent() {
           New Document
         </Typography>
         <Typography variant="body1" sx={{ color: "#666666" }}>
-          Using template:{" "}
+          {draftParam ? "Editing saved draft — " : "Using template: "}
           <strong>{templateName || (loading ? "Loading…" : "Unknown")}</strong>
         </Typography>
       </Box>
