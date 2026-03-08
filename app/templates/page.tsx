@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import {
   Box,
   Typography,
@@ -9,13 +10,40 @@ import {
   Button,
   Grid,
   Chip,
+  CircularProgress,
+  Alert,
 } from "@mui/material";
-import { FileText, Plus, Settings } from "lucide-react";
-import { useAppContext } from "@/lib/app-context";
+import { FileText, Plus } from "lucide-react";
 import Link from "next/link";
+import { createClient } from "@/lib/supabase/client";
+
+interface Template {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+}
 
 export default function TemplatesPage() {
-  const { templates } = useAppContext();
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const supabase = createClient();
+    supabase
+      .from("templates")
+      .select("id, name, description, category")
+      .order("name")
+      .then(({ data, error }) => {
+        if (error) {
+          setError("Failed to load templates.");
+        } else {
+          setTemplates(data ?? []);
+        }
+        setLoading(false);
+      });
+  }, []);
 
   return (
     <Box>
@@ -40,73 +68,95 @@ export default function TemplatesPage() {
         </Button>
       </Box>
 
+      {/* States */}
+      {loading && (
+        <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}>
+          <CircularProgress />
+        </Box>
+      )}
+      {error && (
+        <Alert severity="error" sx={{ mb: 3 }}>
+          {error}
+        </Alert>
+      )}
+
       {/* Template Grid */}
-      <Grid container spacing={3}>
-        {templates.map((template) => (
-          <Grid size={{ xs: 12, sm: 6, md: 4 }} key={template.id}>
-            <Card
-              sx={{
-                height: "100%",
-                display: "flex",
-                flexDirection: "column",
-                transition: "box-shadow 0.2s ease",
-                "&:hover": {
-                  boxShadow: "0px 4px 12px rgba(0, 0, 0, 0.1)",
-                },
-              }}
-            >
-              <CardContent sx={{ flexGrow: 1, pb: 1 }}>
-                <Box sx={{ display: "flex", alignItems: "flex-start", gap: 2, mb: 2 }}>
-                  <Box
-                    sx={{
-                      width: 40,
-                      height: 40,
-                      borderRadius: 1,
-                      backgroundColor: "rgba(57, 91, 69, 0.08)",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      flexShrink: 0,
-                    }}
-                  >
-                    <FileText size={20} color="#395B45" />
-                  </Box>
-                  <Box>
-                    <Typography variant="h6" sx={{ fontWeight: 600, fontSize: 16, mb: 0.5 }}>
-                      {template.name}
-                    </Typography>
-                    <Chip
-                      label={template.category}
-                      size="small"
+      {!loading && !error && (
+        <Grid container spacing={3}>
+          {templates.map((template) => (
+            <Grid size={{ xs: 12, sm: 6, md: 4 }} key={template.id}>
+              <Card
+                sx={{
+                  height: "100%",
+                  display: "flex",
+                  flexDirection: "column",
+                  transition: "box-shadow 0.2s ease",
+                  "&:hover": {
+                    boxShadow: "0px 4px 12px rgba(0, 0, 0, 0.1)",
+                  },
+                }}
+              >
+                <CardContent sx={{ flexGrow: 1, pb: 1 }}>
+                  <Box sx={{ display: "flex", alignItems: "flex-start", gap: 2, mb: 2 }}>
+                    <Box
                       sx={{
-                        backgroundColor: "#F5F5F5",
-                        color: "#666666",
-                        fontSize: 11,
-                        height: 22,
+                        width: 40,
+                        height: 40,
+                        borderRadius: 1,
+                        backgroundColor: "rgba(57, 91, 69, 0.08)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        flexShrink: 0,
                       }}
-                    />
+                    >
+                      <FileText size={20} color="#395B45" />
+                    </Box>
+                    <Box>
+                      <Typography variant="h6" sx={{ fontWeight: 600, fontSize: 16, mb: 0.5 }}>
+                        {template.name}
+                      </Typography>
+                      <Chip
+                        label={template.category}
+                        size="small"
+                        sx={{
+                          backgroundColor: "#F5F5F5",
+                          color: "#666666",
+                          fontSize: 11,
+                          height: 22,
+                        }}
+                      />
+                    </Box>
                   </Box>
-                </Box>
-                <Typography variant="body2" sx={{ color: "#666666", lineHeight: 1.6 }}>
-                  {template.description}
-                </Typography>
-              </CardContent>
-              <CardActions sx={{ p: 2, pt: 1 }}>
-                <Button
-                  component={Link}
-                  href={`/new-document?template=${template.id}`}
-                  variant="contained"
-                  color="primary"
-                  fullWidth
-                  sx={{ py: 1 }}
-                >
-                  Use Template
-                </Button>
-              </CardActions>
-            </Card>
-          </Grid>
-        ))}
-      </Grid>
+                  <Typography variant="body2" sx={{ color: "#666666", lineHeight: 1.6 }}>
+                    {template.description}
+                  </Typography>
+                </CardContent>
+                <CardActions sx={{ p: 2, pt: 1 }}>
+                  <Button
+                    component={Link}
+                    href={`/new-document?template=${template.id}`}
+                    variant="contained"
+                    color="primary"
+                    fullWidth
+                    sx={{ py: 1 }}
+                  >
+                    Use Template
+                  </Button>
+                </CardActions>
+              </Card>
+            </Grid>
+          ))}
+
+          {templates.length === 0 && (
+            <Grid size={{ xs: 12 }}>
+              <Typography sx={{ color: "#666666", textAlign: "center", py: 6 }}>
+                No templates found. Add one to get started.
+              </Typography>
+            </Grid>
+          )}
+        </Grid>
+      )}
     </Box>
   );
 }

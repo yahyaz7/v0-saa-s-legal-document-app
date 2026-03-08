@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, ReactNode } from "react";
+import { useState, ReactNode, useEffect } from "react";
 import {
   Box,
   Drawer,
@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 
 const drawerWidth = 240;
 
@@ -54,6 +55,23 @@ export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const [userEmail, setUserEmail] = useState<string>("");
+  const [userInitials, setUserInitials] = useState<string>("?");
+
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user?.email) {
+        setUserEmail(user.email);
+        const parts = user.email.split("@")[0].split(/[._-]/);
+        const initials = parts
+          .slice(0, 2)
+          .map((p) => p[0]?.toUpperCase() ?? "")
+          .join("");
+        setUserInitials(initials || user.email[0].toUpperCase());
+      }
+    });
+  }, []);
 
   const handleMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
     setAnchorEl(event.currentTarget);
@@ -63,8 +81,10 @@ export function AppShell({ children }: AppShellProps) {
     setAnchorEl(null);
   };
 
-  const handleSignOut = () => {
+  const handleSignOut = async () => {
     handleMenuClose();
+    const supabase = createClient();
+    await supabase.auth.signOut();
     router.push("/login");
   };
 
@@ -189,14 +209,11 @@ export function AppShell({ children }: AppShellProps) {
                     fontWeight: 600,
                   }}
                 >
-                  JD
+                  {userInitials}
                 </Avatar>
                 <Box sx={{ ml: 1.5, textAlign: "left", display: { xs: "none", sm: "block" } }}>
                   <Typography variant="body2" sx={{ fontWeight: 600, lineHeight: 1.2 }}>
-                    John Doe
-                  </Typography>
-                  <Typography variant="caption" sx={{ color: "#666666" }}>
-                    Partner
+                    {userEmail}
                   </Typography>
                 </Box>
                 <ChevronDown size={16} style={{ marginLeft: 8, color: "#666666" }} />
