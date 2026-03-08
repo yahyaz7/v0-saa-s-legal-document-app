@@ -18,12 +18,14 @@ import {
   CircularProgress,
   Alert,
   TextField,
+  Snackbar,
 } from "@mui/material";
-import { Plus, FileDown, Save, Sparkles } from "lucide-react";
+import { Plus, FileDown, Save, Sparkles, Check } from "lucide-react";
 import { useAppContext, ExtractedField } from "@/lib/app-context";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { DynamicField, TemplateFieldDef, FieldValue } from "@/components/dynamic-field";
+import { saveDraft } from "@/lib/drafts";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -84,9 +86,19 @@ function DocumentBuilderContent() {
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
+  // Auth
+  const [userId, setUserId] = useState<string | null>(null);
+
   // Form state
   const [formValues, setFormValues] = useState<FormValues>({});
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  // Draft state
+  const [draftId, setDraftId] = useState<string | null>(null);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState("");
+  const [snackbarSeverity, setSnackbarSeverity] = useState<"success" | "error">("success");
 
   // Right-panel state (unchanged from original)
   const [tabValue, setTabValue] = useState(0);
@@ -106,6 +118,7 @@ function DocumentBuilderContent() {
     const supabase = createClient();
 
     Promise.all([
+      supabase.auth.getUser(),
       supabase
         .from("templates")
         .select("name")
@@ -117,7 +130,9 @@ function DocumentBuilderContent() {
         .eq("template_id", templateId)
         .order("section_order")
         .order("field_order"),
-    ]).then(([templateRes, fieldsRes]) => {
+    ]).then(([userRes, templateRes, fieldsRes]) => {
+      setUserId(userRes.data.user?.id ?? null);
+
       if (templateRes.error || !templateRes.data) {
         setFetchError("Template not found.");
       } else if (fieldsRes.error) {
@@ -173,6 +188,43 @@ function DocumentBuilderContent() {
     }
     setFieldErrors(errors);
     return Object.keys(errors).length === 0;
+  };
+
+  // ── Save draft ─────────────────────────────────────────────────────────────
+  const handleSaveDraft = async () => {
+    if (!templateId || !userId) {
+      setSnackbarMessage("Cannot save: not signed in.");
+      setSnackbarSeverity("error");
+      setSnackbarOpen(true);
+      return;
+    }
+
+    setSaveStatus("saving");
+
+    try {
+      const supabase = createClient();
+      const id = await saveDraft({
+        supabase,
+        userId,
+        templateId,
+        formData: formValues,
+        draftId,
+      });
+      setDraftId(id);
+      setSaveStatus("saved");
+      setSnackbarMessage(draftId ? "Draft updated." : "Draft saved.");
+      setSnackbarSeverity("success");
+      setSnackbarOpen(true);
+      // Reset button back to idle after a short pause
+      setTimeout(() => setSaveStatus("idle"), 2500);
+    } catch (err) {
+      console.error("Save draft error:", err);
+      setSaveStatus("error");
+      setSnackbarMessage("Failed to save draft. Please try again.");
+      setSnackbarSeverity("error");
+      setSnackbarOpen(true);
+      setTimeout(() => setSaveStatus("idle"), 3000);
+    }
   };
 
   // ── Right-panel handlers (unchanged) ──────────────────────────────────────
@@ -478,22 +530,37 @@ function DocumentBuilderContent() {
           p: 2,
           display: "flex",
           justifyContent: "flex-end",
+          alignItems: "center",
           gap: 2,
           borderTop: "1px solid #E0E0E0",
           zIndex: 1000,
         }}
       >
+        {draftId && (
+          <Typography variant="caption" sx={{ color: "#999", mr: "auto" }}>
+            Draft ID: {draftId.slice(0, 8)}…
+          </Typography>
+        )}
         <Button
           variant="outlined"
-          color="primary"
-          startIcon={<Save size={16} />}
-          onClick={() => {
-            if (validate()) {
-              // TODO: save draft (next task)
-            }
-          }}
+          color={saveStatus === "error" ? "error" : "primary"}
+          startIcon={
+            saveStatus === "saving" ? (
+              <CircularProgress size={14} color="inherit" />
+            ) : saveStatus === "saved" ? (
+              <Check size={16} />
+            ) : (
+              <Save size={16} />
+            )
+          }
+          onClick={handleSaveDraft}
+          disabled={saveStatus === "saving"}
         >
-          Save Draft
+          {saveStatus === "saving"
+            ? "Saving…"
+            : saveStatus === "saved"
+            ? "Saved"
+            : "Save Draft"}
         </Button>
         <Button
           variant="contained"
@@ -508,6 +575,22 @@ function DocumentBuilderContent() {
           Generate DOCX
         </Button>
       </Paper>
+
+      {/* Save feedback snackbar */}
+      <Snackbar
+        open={snackbarOpen}
+        autoHideDuration={3500}
+        onClose={() => setSnackbarOpen(false)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      >
+        <Alert
+          onClose={() => setSnackbarOpen(false)}
+          severity={snackbarSeverity}
+          sx={{ width: "100%" }}
+        >
+          {snackbarMessage}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }
