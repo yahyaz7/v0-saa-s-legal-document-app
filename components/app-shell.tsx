@@ -52,7 +52,9 @@ interface AppShellProps {
 const publicRoutes = ["/login", "/register", "/forgot-password"];
 
 export function AppShell({ children }: AppShellProps) {
+  console.log("[v0] AppShell rendering");
   const pathname = usePathname();
+  console.log("[v0] pathname:", pathname);
   const router = useRouter();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [userEmail, setUserEmail] = useState<string>("");
@@ -89,7 +91,10 @@ export function AppShell({ children }: AppShellProps) {
   };
 
   // Don't render shell for public routes (login, register, etc.)
-  if (publicRoutes.some((route) => pathname.startsWith(route))) {
+  const isPublicRoute = publicRoutes.some((route) => pathname.startsWith(route));
+  console.log("[v0] isPublicRoute:", isPublicRoute);
+  if (isPublicRoute) {
+    console.log("[v0] Returning children without shell");
     return <>{children}</>;
   }
 

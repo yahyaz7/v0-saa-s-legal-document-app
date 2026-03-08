@@ -20,6 +20,7 @@ import { BookOpeningIntro } from "@/components/book-opening-intro";
 import { createClient } from "@/lib/supabase/client";
 
 export default function LoginPage() {
+  console.log("[v0] LoginPage rendering");
   const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
