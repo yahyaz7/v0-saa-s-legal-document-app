@@ -17,10 +17,8 @@ import {
 import { Eye, EyeOff, Scale, Mail, Lock } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { BookOpeningIntro } from "@/components/book-opening-intro";
-import { createClient } from "@/lib/supabase/client";
 
 export default function LoginPage() {
-  console.log("[v0] LoginPage rendering");
   const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -40,20 +38,19 @@ export default function LoginPage() {
     setError("");
     setLoading(true);
 
-    const supabase = createClient();
-    const { error } = await supabase.auth.signInWithPassword({
-      email: formData.email,
-      password: formData.password,
-    });
+    // Mock authentication - will be replaced with Supabase auth
+    // For now, accept admin@test.com / password123 or any non-empty credentials
+    setTimeout(() => {
+      if (!formData.email || !formData.password) {
+        setError("Please enter your email and password");
+        setLoading(false);
+        return;
+      }
 
-    if (error) {
-      setError(error.message);
+      // Accept any credentials for demo purposes
       setLoading(false);
-      return;
-    }
-
-    setLoading(false);
-    setShowIntro(true);
+      setShowIntro(true);
+    }, 800);
   };
 
   return (

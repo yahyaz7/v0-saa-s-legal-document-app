@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, ReactNode, useEffect } from "react";
+import { useState, ReactNode } from "react";
 import {
   Box,
   Drawer,
@@ -31,7 +31,6 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 
 const drawerWidth = 240;
 
@@ -52,28 +51,12 @@ interface AppShellProps {
 const publicRoutes = ["/login", "/register", "/forgot-password"];
 
 export function AppShell({ children }: AppShellProps) {
-  console.log("[v0] AppShell rendering");
   const pathname = usePathname();
-  console.log("[v0] pathname:", pathname);
   const router = useRouter();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
-  const [userEmail, setUserEmail] = useState<string>("");
-  const [userInitials, setUserInitials] = useState<string>("?");
-
-  useEffect(() => {
-    const supabase = createClient();
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user?.email) {
-        setUserEmail(user.email);
-        const parts = user.email.split("@")[0].split(/[._-]/);
-        const initials = parts
-          .slice(0, 2)
-          .map((p) => p[0]?.toUpperCase() ?? "")
-          .join("");
-        setUserInitials(initials || user.email[0].toUpperCase());
-      }
-    });
-  }, []);
+  // Mock user data - will be replaced with Supabase auth
+  const userEmail = "admin@lawfirm.co.uk";
+  const userInitials = "AD";
 
   const handleMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
     setAnchorEl(event.currentTarget);
@@ -83,18 +66,14 @@ export function AppShell({ children }: AppShellProps) {
     setAnchorEl(null);
   };
 
-  const handleSignOut = async () => {
+  const handleSignOut = () => {
     handleMenuClose();
-    const supabase = createClient();
-    await supabase.auth.signOut();
     router.push("/login");
   };
 
   // Don't render shell for public routes (login, register, etc.)
   const isPublicRoute = publicRoutes.some((route) => pathname.startsWith(route));
-  console.log("[v0] isPublicRoute:", isPublicRoute);
   if (isPublicRoute) {
-    console.log("[v0] Returning children without shell");
     return <>{children}</>;
   }
 
