@@ -13,7 +13,11 @@ import {
   Button,
   Chip,
   Switch,
+  FormControl,
   FormControlLabel,
+  InputLabel,
+  Select,
+  MenuItem,
   Divider,
   CircularProgress,
   Alert,
@@ -21,11 +25,25 @@ import {
   Snackbar,
 } from "@mui/material";
 import { Plus, FileDown, Save, Sparkles, Check } from "lucide-react";
-import { useAppContext, ExtractedField } from "@/lib/app-context";
+import { ExtractedField } from "@/lib/app-context";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { DynamicField, TemplateFieldDef, FieldValue } from "@/components/dynamic-field";
 import { saveDraft, loadDraft, DraftFormData } from "@/lib/drafts";
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface PhraseEntry {
+  id: string;
+  field_key: string | null;
+  title: string;
+  content: string;
+  category: string | null;
+  offence_tags: string[];
+}
+
+/** Field keys that support phrase-bank insertion on this template. */
+const PHRASE_BANK_KEYS = ["instructions", "advice", "outcome", "next_action"];
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -94,7 +112,6 @@ function DocumentBuilderContent() {
   const searchParams = useSearchParams();
   const templateId = searchParams.get("template");
   const draftParam = searchParams.get("draft"); // present when opening a saved draft
-  const { phrases } = useAppContext();
 
   // Template metadata + fields from DB
   const [templateName, setTemplateName] = useState("");
@@ -115,6 +132,10 @@ function DocumentBuilderContent() {
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState("");
   const [snackbarSeverity, setSnackbarSeverity] = useState<"success" | "error">("success");
+
+  // Phrase bank state
+  const [dbPhrases, setDbPhrases] = useState<PhraseEntry[]>([]);
+  const [phraseTargetField, setPhraseTargetField] = useState<string>(PHRASE_BANK_KEYS[0]);
 
   // Right-panel state (unchanged from original)
   const [tabValue, setTabValue] = useState(0);
@@ -148,7 +169,13 @@ function DocumentBuilderContent() {
         .order("field_order"),
       // Load draft data when ?draft= is present in the URL
       draftParam ? loadDraft(supabase, draftParam) : Promise.resolve(null),
-    ]).then(([userRes, templateRes, fieldsRes, draftData]) => {
+      // Load phrase bank entries for this template
+      supabase
+        .from("phrase_bank_entries")
+        .select("id, field_key, title, content, category, offence_tags")
+        .eq("template_id", templateId)
+        .order("title"),
+    ]).then(([userRes, templateRes, fieldsRes, draftData, phrasesRes]) => {
       setUserId(userRes.data.user?.id ?? null);
 
       if (templateRes.error || !templateRes.data) {
@@ -162,6 +189,11 @@ function DocumentBuilderContent() {
         const base = initFormValues(fields);
         setFormValues(draftData ? applyDraftData(base, draftData) : base);
       }
+
+      if (!phrasesRes.error) {
+        setDbPhrases((phrasesRes.data ?? []) as PhraseEntry[]);
+      }
+
       setLoading(false);
     });
   }, [templateId, draftParam]);
@@ -207,6 +239,38 @@ function DocumentBuilderContent() {
     }
     setFieldErrors(errors);
     return Object.keys(errors).length === 0;
+  };
+
+  // ── Phrase bank ────────────────────────────────────────────────────────────
+
+  /** Dropdown options: only phrase-bank-eligible fields that exist in the template. */
+  const phraseTargetOptions = useMemo(
+    () =>
+      templateFields
+        .filter((f) => PHRASE_BANK_KEYS.includes(f.field_key))
+        .sort((a, b) => a.section_order - b.section_order || a.field_order - b.field_order)
+        .map((f) => ({ key: f.field_key, label: f.label })),
+    [templateFields]
+  );
+
+  /** Phrases relevant to the currently-selected target field (plus generic ones with null field_key). */
+  const filteredPhrases = useMemo(
+    () => dbPhrases.filter((p) => p.field_key === phraseTargetField || p.field_key === null),
+    [dbPhrases, phraseTargetField]
+  );
+
+  /** Append phrase content to the target field value, separated by a blank line. */
+  const handleInsertPhrase = (content: string) => {
+    const current = (formValues[phraseTargetField] as string) ?? "";
+    const updated = current.trim() ? `${current}\n\n${content}` : content;
+    handleFieldChange(phraseTargetField, updated);
+  };
+
+  /** When a textarea gains focus, auto-target the phrase panel to that field. */
+  const handleFieldFocus = (key: string) => {
+    if (PHRASE_BANK_KEYS.includes(key)) {
+      setPhraseTargetField(key);
+    }
   };
 
   // ── Save draft ─────────────────────────────────────────────────────────────
@@ -335,6 +399,7 @@ function DocumentBuilderContent() {
                             (field.field_type === "repeater" ? [] : "")
                           }
                           onChange={handleFieldChange}
+                          onFocus={handleFieldFocus}
                           error={fieldErrors[field.field_key]}
                         />
                       </Grid>
@@ -372,63 +437,111 @@ function DocumentBuilderContent() {
 
               {/* Tab 0 – Suggested Phrases */}
               <TabPanel value={tabValue} index={0}>
-                <Box sx={{ px: 2, maxHeight: 500, overflow: "auto" }}>
-                  {phrases.slice(0, 4).map((phrase) => (
-                    <Card
-                      key={phrase.id}
-                      sx={{ mb: 2, border: "1px solid #E0E0E0", boxShadow: "none" }}
+                <Box sx={{ px: 2 }}>
+                  {/* Target field selector */}
+                  <FormControl fullWidth size="small" sx={{ mb: 2 }}>
+                    <InputLabel>Insert into</InputLabel>
+                    <Select
+                      value={phraseTargetField}
+                      label="Insert into"
+                      onChange={(e) => setPhraseTargetField(e.target.value)}
                     >
-                      <CardContent sx={{ pb: "12px !important" }}>
-                        <Box
-                          sx={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "flex-start",
-                            mb: 1,
-                          }}
+                      {phraseTargetOptions.map(({ key, label }) => (
+                        <MenuItem key={key} value={key}>
+                          {label}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+
+                  {/* Phrase list */}
+                  <Box sx={{ maxHeight: 430, overflow: "auto" }}>
+                    {filteredPhrases.length === 0 ? (
+                      <Typography
+                        variant="body2"
+                        sx={{ color: "#666666", textAlign: "center", py: 4 }}
+                      >
+                        No phrases available for this field.
+                      </Typography>
+                    ) : (
+                      filteredPhrases.map((phrase) => (
+                        <Card
+                          key={phrase.id}
+                          sx={{ mb: 2, border: "1px solid #E0E0E0", boxShadow: "none" }}
                         >
-                          <Typography
-                            variant="subtitle2"
-                            sx={{ fontWeight: 600, fontSize: 14 }}
-                          >
-                            {phrase.title}
-                          </Typography>
-                          <Chip
-                            label={`${phrase.confidence}%`}
-                            size="small"
-                            color={getConfidenceColor(phrase.confidence)}
-                            sx={{ fontSize: 11, height: 20 }}
-                          />
-                        </Box>
-                        <Box
-                          sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mb: 1.5 }}
-                        >
-                          {phrase.offenceTags.map((tag) => (
-                            <Chip
-                              key={tag}
-                              label={tag}
-                              size="small"
+                          <CardContent sx={{ pb: "12px !important" }}>
+                            <Box
                               sx={{
-                                backgroundColor: "#F5F5F5",
-                                fontSize: 10,
-                                height: 18,
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "flex-start",
+                                mb: 0.5,
                               }}
-                            />
-                          ))}
-                        </Box>
-                        <Button
-                          variant="outlined"
-                          color="primary"
-                          size="small"
-                          startIcon={<Plus size={14} />}
-                          fullWidth
-                          sx={{ mt: 1 }}
-                        >
-                          Add to Document
-                        </Button>
-                      </CardContent>
-                    </Card>
-                  ))}
+                            >
+                              <Typography
+                                variant="subtitle2"
+                                sx={{ fontWeight: 600, fontSize: 14 }}
+                              >
+                                {phrase.title}
+                              </Typography>
+                              {phrase.category && (
+                                <Chip
+                                  label={phrase.category}
+                                  size="small"
+                                  sx={{
+                                    backgroundColor: "#F5F5F5",
+                                    color: "#666666",
+                                    fontSize: 10,
+                                    height: 18,
+                                    ml: 1,
+                                    flexShrink: 0,
+                                  }}
+                                />
+                              )}
+                            </Box>
+                            <Typography
+                              variant="body2"
+                              sx={{
+                                color: "#666666",
+                                fontSize: 12,
+                                lineHeight: 1.5,
+                                mb: 1,
+                                display: "-webkit-box",
+                                WebkitLineClamp: 3,
+                                WebkitBoxOrient: "vertical",
+                                overflow: "hidden",
+                              }}
+                            >
+                              {phrase.content}
+                            </Typography>
+                            {phrase.offence_tags?.length > 0 && (
+                              <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mb: 1 }}>
+                                {phrase.offence_tags.map((tag) => (
+                                  <Chip
+                                    key={tag}
+                                    label={tag}
+                                    size="small"
+                                    sx={{ backgroundColor: "#EEF2EE", fontSize: 10, height: 18 }}
+                                  />
+                                ))}
+                              </Box>
+                            )}
+                            <Button
+                              variant="outlined"
+                              color="primary"
+                              size="small"
+                              startIcon={<Plus size={14} />}
+                              fullWidth
+                              sx={{ mt: 0.5 }}
+                              onClick={() => handleInsertPhrase(phrase.content)}
+                            >
+                              Add to Document
+                            </Button>
+                          </CardContent>
+                        </Card>
+                      ))
+                    )}
+                  </Box>
                 </Box>
               </TabPanel>
 

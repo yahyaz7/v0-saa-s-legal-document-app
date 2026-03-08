@@ -42,9 +42,11 @@ interface DynamicFieldProps {
   value: FieldValue;
   onChange: (key: string, value: FieldValue) => void;
   error?: string;
+  /** Called when a textarea gains focus — used to auto-target the phrase panel. */
+  onFocus?: (key: string) => void;
 }
 
-export function DynamicField({ field, value, onChange, error }: DynamicFieldProps) {
+export function DynamicField({ field, value, onChange, error, onFocus }: DynamicFieldProps) {
   const strValue = typeof value === "string" ? value : "";
   const rows = Array.isArray(value) ? value : [];
   const subFields = field.repeater_fields ?? [];
@@ -198,6 +200,7 @@ export function DynamicField({ field, value, onChange, error }: DynamicFieldProp
         label={field.label + (field.required ? " *" : "")}
         value={strValue}
         onChange={(e) => onChange(field.field_key, e.target.value)}
+        onFocus={() => onFocus?.(field.field_key)}
         error={!!error}
         helperText={error}
       />
