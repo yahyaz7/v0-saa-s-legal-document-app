@@ -1,11 +1,10 @@
-"use server";
-
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 
 // This endpoint creates the initial admin user
 // Should only be called once during setup
-export async function POST() {
+
+async function seedAdmin() {
   try {
     // Use service role key for admin operations
     const supabaseAdmin = createClient(
@@ -70,4 +69,13 @@ export async function POST() {
       { status: 500 }
     );
   }
+}
+
+// Allow both GET and POST for convenience
+export async function GET() {
+  return seedAdmin();
+}
+
+export async function POST() {
+  return seedAdmin();
 }

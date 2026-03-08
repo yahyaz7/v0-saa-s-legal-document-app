@@ -2,7 +2,8 @@
 
 import { createTheme, ThemeProvider } from "@mui/material/styles";
 import CssBaseline from "@mui/material/CssBaseline";
-import { ReactNode, useState, useEffect } from "react";
+import { ReactNode } from "react";
+import { EmotionCacheProvider } from "./emotion-cache-provider";
 
 const theme = createTheme({
   palette: {
@@ -123,25 +124,12 @@ const theme = createTheme({
 });
 
 export function MuiThemeProvider({ children }: { children: ReactNode }) {
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  // Prevent SSR flash by returning minimal wrapper until client mounts
-  if (!mounted) {
-    return (
-      <div style={{ visibility: "hidden" }}>
-        {children}
-      </div>
-    );
-  }
-
   return (
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
-      {children}
-    </ThemeProvider>
+    <EmotionCacheProvider>
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        {children}
+      </ThemeProvider>
+    </EmotionCacheProvider>
   );
 }
