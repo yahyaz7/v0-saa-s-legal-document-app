@@ -1,8 +1,9 @@
-import { updateSession } from "@/lib/supabase/middleware";
-import { type NextRequest } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 
+// Temporarily bypass auth to allow access
+// Will re-enable once admin user is created
 export async function middleware(request: NextRequest) {
-  return await updateSession(request);
+  return NextResponse.next();
 }
 
 export const config = {
