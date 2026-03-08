@@ -30,6 +30,7 @@ import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { DynamicField, TemplateFieldDef, FieldValue } from "@/components/dynamic-field";
 import { saveDraft, loadDraft, DraftFormData } from "@/lib/drafts";
+import { generateMagistratesNote, buildFileName } from "@/lib/generate-docx";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -129,6 +130,7 @@ function DocumentBuilderContent() {
   // Draft state — seed from URL so re-saves UPDATE the same row
   const [draftId, setDraftId] = useState<string | null>(draftParam);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [docxStatus, setDocxStatus] = useState<"idle" | "generating" | "done" | "error">("idle");
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState("");
   const [snackbarSeverity, setSnackbarSeverity] = useState<"success" | "error">("success");
@@ -307,6 +309,56 @@ function DocumentBuilderContent() {
       setSnackbarSeverity("error");
       setSnackbarOpen(true);
       setTimeout(() => setSaveStatus("idle"), 3000);
+    }
+  };
+
+  // ── Generate DOCX ──────────────────────────────────────────────────────────
+  const handleGenerateDocx = async () => {
+    if (!validate()) return;
+    if (!templateId || !userId) {
+      setSnackbarMessage("Cannot generate: not signed in.");
+      setSnackbarSeverity("error");
+      setSnackbarOpen(true);
+      return;
+    }
+
+    setDocxStatus("generating");
+
+    try {
+      const blob = await generateMagistratesNote(formValues);
+      const fileName = buildFileName(formValues);
+
+      // Trigger browser download
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = fileName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      URL.revokeObjectURL(url);
+
+      // Store generation metadata (no file upload for MVP)
+      const supabase = createClient();
+      await supabase.from("generated_documents").insert({
+        user_id: userId,
+        template_id: templateId,
+        ...(draftId ? { draft_id: draftId } : {}),
+        file_name: fileName,
+      });
+
+      setDocxStatus("done");
+      setSnackbarMessage("DOCX downloaded successfully.");
+      setSnackbarSeverity("success");
+      setSnackbarOpen(true);
+      setTimeout(() => setDocxStatus("idle"), 3000);
+    } catch (err) {
+      console.error("DOCX generation error:", err);
+      setDocxStatus("error");
+      setSnackbarMessage("Failed to generate DOCX. Please try again.");
+      setSnackbarSeverity("error");
+      setSnackbarOpen(true);
+      setTimeout(() => setDocxStatus("idle"), 3000);
     }
   };
 
@@ -696,15 +748,24 @@ function DocumentBuilderContent() {
         </Button>
         <Button
           variant="contained"
-          color="primary"
-          startIcon={<FileDown size={16} />}
-          onClick={() => {
-            if (validate()) {
-              // TODO: generate DOCX (next task)
-            }
-          }}
+          color={docxStatus === "error" ? "error" : "primary"}
+          startIcon={
+            docxStatus === "generating" ? (
+              <CircularProgress size={14} color="inherit" />
+            ) : docxStatus === "done" ? (
+              <Check size={16} />
+            ) : (
+              <FileDown size={16} />
+            )
+          }
+          onClick={handleGenerateDocx}
+          disabled={docxStatus === "generating"}
         >
-          Generate DOCX
+          {docxStatus === "generating"
+            ? "Generating…"
+            : docxStatus === "done"
+            ? "Downloaded"
+            : "Generate DOCX"}
         </Button>
       </Paper>
 
