@@ -16,11 +16,54 @@ create table if not exists public.profiles (
   email       text unique,
   full_name   text,
   role        text default 'user' check (role in ('admin', 'user', 'fee_earner')),
-  firm_name   text,
   avatar_url  text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
+
+-- Add missing columns if table already exists
+do $$
+begin
+  -- Add firm_name if missing
+  if not exists (
+    select 1 from information_schema.columns 
+    where table_schema = 'public' 
+    and table_name = 'profiles' 
+    and column_name = 'firm_name'
+  ) then
+    alter table public.profiles add column firm_name text;
+  end if;
+
+  -- Add role if missing
+  if not exists (
+    select 1 from information_schema.columns 
+    where table_schema = 'public' 
+    and table_name = 'profiles' 
+    and column_name = 'role'
+  ) then
+    alter table public.profiles add column role text default 'user' check (role in ('admin', 'user', 'fee_earner'));
+  end if;
+
+  -- Add full_name if missing
+  if not exists (
+    select 1 from information_schema.columns 
+    where table_schema = 'public' 
+    and table_name = 'profiles' 
+    and column_name = 'full_name'
+  ) then
+    alter table public.profiles add column full_name text;
+  end if;
+
+  -- Add avatar_url if missing
+  if not exists (
+    select 1 from information_schema.columns 
+    where table_schema = 'public' 
+    and table_name = 'profiles' 
+    and column_name = 'avatar_url'
+  ) then
+    alter table public.profiles add column avatar_url text;
+  end if;
+end $$;
 
 -- Index for faster lookups
 create index if not exists profiles_email_idx on public.profiles(email);
@@ -181,10 +224,10 @@ begin
     now()
   );
   
-  -- Update profile role
-  update public.profiles 
-  set role = 'admin', firm_name = 'LegalDocs Pro'
-  where id = admin_id;
+  -- Insert into profiles (trigger may not fire for direct inserts)
+  insert into public.profiles (id, email, full_name, role, firm_name)
+  values (admin_id, 'admin@legaldocs.test', 'Admin User', 'admin', 'LegalDocs Pro')
+  on conflict (id) do update set role = 'admin', firm_name = 'LegalDocs Pro', full_name = 'Admin User';
 end $$;
 
 -- Fee Earner user
@@ -242,9 +285,10 @@ begin
     now()
   );
   
-  update public.profiles 
-  set role = 'fee_earner', firm_name = 'Gray''s Defence Solicitors'
-  where id = fee_earner_id;
+  -- Insert into profiles
+  insert into public.profiles (id, email, full_name, role, firm_name)
+  values (fee_earner_id, 'feeearner@legaldocs.test', 'John Gray', 'fee_earner', 'Gray''s Defence Solicitors')
+  on conflict (id) do update set role = 'fee_earner', firm_name = 'Gray''s Defence Solicitors', full_name = 'John Gray';
 end $$;
 
 -- Regular user
@@ -302,9 +346,10 @@ begin
     now()
   );
   
-  update public.profiles 
-  set role = 'user', firm_name = 'Gray''s Defence Solicitors'
-  where id = user_id;
+  -- Insert into profiles
+  insert into public.profiles (id, email, full_name, role, firm_name)
+  values (user_id, 'user@legaldocs.test', 'Sarah Smith', 'user', 'Gray''s Defence Solicitors')
+  on conflict (id) do update set role = 'user', firm_name = 'Gray''s Defence Solicitors', full_name = 'Sarah Smith';
 end $$;
 
 -- ------------------------------------------------------------
