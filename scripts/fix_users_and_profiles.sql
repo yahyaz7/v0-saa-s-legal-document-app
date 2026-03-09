@@ -21,6 +21,11 @@ create table if not exists public.profiles (
   updated_at  timestamptz not null default now()
 );
 
+-- Fix the role check constraint to include 'fee_earner'
+alter table public.profiles drop constraint if exists profiles_role_check;
+alter table public.profiles add constraint profiles_role_check 
+  check (role in ('admin', 'user', 'fee_earner'));
+
 -- Add missing columns if table already exists
 do $$
 begin
@@ -41,7 +46,7 @@ begin
     and table_name = 'profiles' 
     and column_name = 'role'
   ) then
-    alter table public.profiles add column role text default 'user' check (role in ('admin', 'user', 'fee_earner'));
+    alter table public.profiles add column role text default 'user';
   end if;
 
   -- Add full_name if missing
