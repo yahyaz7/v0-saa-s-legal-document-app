@@ -31,13 +31,16 @@ export default function TemplatesPage() {
 
   useEffect(() => {
     const supabase = createClient();
+    console.log("[v0] Fetching templates from Supabase...");
     supabase
       .from("templates")
       .select("id, name, description, category")
       .order("name")
       .then(({ data, error }) => {
+        console.log("[v0] Templates response:", { data, error });
         if (error) {
-          setError("Failed to load templates.");
+          console.error("[v0] Templates error:", error);
+          setError(`Failed to load templates: ${error.message}`);
         } else {
           setTemplates(data ?? []);
         }
