@@ -217,17 +217,17 @@ export default function ClientsPage() {
                 Import Summary
               </Typography>
               <Grid container spacing={2}>
-                <Grid size={{ xs: 6, sm: 3 }}>
+                <Grid item xs={6} sm={3}>
                   <Typography variant="body2" sx={{ color: "#666666" }}>Total Rows</Typography>
                   <Typography variant="h6" sx={{ fontWeight: 600 }}>3</Typography>
                 </Grid>
-                <Grid size={{ xs: 6, sm: 3 }}>
+                <Grid item xs={6} sm={3}>
                   <Typography variant="body2" sx={{ color: "#666666" }}>Mapped Fields</Typography>
                   <Typography variant="h6" sx={{ fontWeight: 600 }}>
                     {uploadedColumns.filter((c) => c.mappedTo).length}
                   </Typography>
                 </Grid>
-                <Grid size={{ xs: 6, sm: 3 }}>
+                <Grid item xs={6} sm={3}>
                   <Typography variant="body2" sx={{ color: "#666666" }}>Skipped Fields</Typography>
                   <Typography variant="h6" sx={{ fontWeight: 600 }}>
                     {uploadedColumns.filter((c) => !c.mappedTo).length}

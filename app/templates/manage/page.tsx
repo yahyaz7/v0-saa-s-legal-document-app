@@ -264,7 +264,7 @@ export default function ManageTemplatesPage() {
                     How placeholders work:
                   </Typography>
                   <Grid container spacing={2}>
-                    <Grid size={{ xs: 12, md: 4 }}>
+                    <Grid item xs={12} md={4}>
                       <Card sx={{ height: "100%" }}>
                         <CardContent>
                           <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>
@@ -276,7 +276,7 @@ export default function ManageTemplatesPage() {
                         </CardContent>
                       </Card>
                     </Grid>
-                    <Grid size={{ xs: 12, md: 4 }}>
+                    <Grid item xs={12} md={4}>
                       <Card sx={{ height: "100%" }}>
                         <CardContent>
                           <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>
@@ -288,7 +288,7 @@ export default function ManageTemplatesPage() {
                         </CardContent>
                       </Card>
                     </Grid>
-                    <Grid size={{ xs: 12, md: 4 }}>
+                    <Grid item xs={12} md={4}>
                       <Card sx={{ height: "100%" }}>
                         <CardContent>
                           <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>
@@ -406,7 +406,7 @@ export default function ManageTemplatesPage() {
                   Template Details
                 </Typography>
                 <Grid container spacing={3}>
-                  <Grid size={{ xs: 12 }}>
+                  <Grid item xs={12}>
                     <TextField
                       fullWidth
                       label="Template Name"
@@ -415,7 +415,7 @@ export default function ManageTemplatesPage() {
                       required
                     />
                   </Grid>
-                  <Grid size={{ xs: 12 }}>
+                  <Grid item xs={12}>
                     <FormControl fullWidth>
                       <InputLabel>Category</InputLabel>
                       <Select
@@ -432,7 +432,7 @@ export default function ManageTemplatesPage() {
                       </Select>
                     </FormControl>
                   </Grid>
-                  <Grid size={{ xs: 12 }}>
+                  <Grid item xs={12}>
                     <TextField
                       fullWidth
                       label="Description"

@@ -40,7 +40,7 @@ export default function Dashboard() {
       .select("id, template_id, form_data, updated_at, templates(name)")
       .order("updated_at", { ascending: false })
       .limit(20)
-      .then(({ data, error }) => {
+      .then(({ data, error }: { data: any, error: any }) => {
         if (!error && data) {
           setDrafts(data as unknown as DraftRow[]);
         }

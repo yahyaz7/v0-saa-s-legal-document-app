@@ -17,6 +17,7 @@ import {
 import { Eye, EyeOff, Scale, Mail, Lock } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { BookOpeningIntro } from "@/components/book-opening-intro";
+import { createClient } from "@/lib/supabase/client";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -44,12 +45,20 @@ export default function LoginPage() {
       return;
     }
 
-    // Temporarily bypass auth - accept any credentials
-    // TODO: Re-enable Supabase auth once admin user is created
-    setTimeout(() => {
+    const supabase = createClient();
+    const { error } = await supabase.auth.signInWithPassword({
+      email: formData.email,
+      password: formData.password,
+    });
+
+    if (error) {
+      setError(error.message);
       setLoading(false);
-      setShowIntro(true);
-    }, 500);
+      return;
+    }
+
+    setLoading(false);
+    setShowIntro(true);
   };
 
   return (

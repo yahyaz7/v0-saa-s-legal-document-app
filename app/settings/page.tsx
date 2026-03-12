@@ -23,7 +23,10 @@ import {
   IconButton,
   Avatar,
 } from "@mui/material";
-import { Building2, Users, Sparkles, Database, Plus, Edit2, Trash2 } from "lucide-react";
+import { Building2, Users, Sparkles, Database, Plus, Edit2, Trash2, User as UserIcon } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
+import { useSearchParams } from "next/navigation";
+import { useEffect, Suspense } from "react";
 
 interface TabPanelProps {
   children: React.ReactNode;
@@ -54,8 +57,15 @@ const mockUsers: User[] = [
   { id: "4", name: "Emily Wilson", email: "e.wilson@lawfirm.co.uk", role: "Solicitor", status: "Invited" },
 ];
 
-export default function SettingsPage() {
-  const [tabValue, setTabValue] = useState(0);
+function SettingsContent() {
+  const searchParams = useSearchParams();
+  const initialTab = searchParams.get("tab") === "profile" ? 0 : 1;
+  
+  const [tabValue, setTabValue] = useState(initialTab);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [saveLoading, setSaveLoading] = useState(false);
+  const [userProfile, setUserProfile] = useState({ id: "", name: "", email: "" });
+  
   const [firmProfile, setFirmProfile] = useState({
     firmName: "Smith & Partners LLP",
     address: "123 Legal Lane, London, EC1A 1BB",
@@ -69,8 +79,35 @@ export default function SettingsPage() {
     storeSourceText: false,
   });
 
+  useEffect(() => {
+    async function loadProfile() {
+      setProfileLoading(true);
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data } = await supabase.from("users").select("id, name, email").eq("id", user.id).single();
+        if (data) {
+          setUserProfile(data);
+        } else {
+          setUserProfile({ id: user.id, name: user.user_metadata?.full_name || "", email: user.email || "" });
+        }
+      }
+      setProfileLoading(false);
+    }
+    loadProfile();
+  }, []);
+
   const handleTabChange = (_: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
+  };
+
+  const handleSaveProfile = async () => {
+    if (!userProfile.id) return;
+    setSaveLoading(true);
+    const supabase = createClient();
+    await supabase.from("users").update({ name: userProfile.name }).eq("id", userProfile.id);
+    await supabase.auth.updateUser({ data: { full_name: userProfile.name } });
+    setSaveLoading(false);
   };
 
   return (
@@ -100,17 +137,57 @@ export default function SettingsPage() {
             },
           }}
         >
+          <Tab icon={<UserIcon size={18} />} iconPosition="start" label="My Profile" />
           <Tab icon={<Building2 size={18} />} iconPosition="start" label="Firm Profile" />
           <Tab icon={<Users size={18} />} iconPosition="start" label="Users" />
           <Tab icon={<Sparkles size={18} />} iconPosition="start" label="AI Settings" />
           <Tab icon={<Database size={18} />} iconPosition="start" label="Data & Backup" />
         </Tabs>
 
-        {/* Firm Profile Tab */}
+        {/* My Profile Tab */}
         <TabPanel value={tabValue} index={0}>
           <Box sx={{ px: 3, maxWidth: 600 }}>
+            <Typography variant="h6" sx={{ fontWeight: 600, mb: 3 }}>
+              Personal Information
+            </Typography>
             <Grid container spacing={3}>
-              <Grid size={{ xs: 12 }}>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="Full Name"
+                  value={userProfile.name}
+                  onChange={(e) => setUserProfile({ ...userProfile, name: e.target.value })}
+                  disabled={profileLoading}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="Email Address"
+                  value={userProfile.email}
+                  disabled
+                  helperText="Your email address cannot be changed."
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <Button 
+                  variant="contained" 
+                  color="primary"
+                  onClick={handleSaveProfile}
+                  disabled={saveLoading || profileLoading}
+                >
+                  {saveLoading ? "Saving..." : "Save Profile"}
+                </Button>
+              </Grid>
+            </Grid>
+          </Box>
+        </TabPanel>
+
+        {/* Firm Profile Tab */}
+        <TabPanel value={tabValue} index={1}>
+          <Box sx={{ px: 3, maxWidth: 600 }}>
+            <Grid container spacing={3}>
+              <Grid item xs={12}>
                 <TextField
                   fullWidth
                   label="Firm Name"
@@ -118,7 +195,7 @@ export default function SettingsPage() {
                   onChange={(e) => setFirmProfile({ ...firmProfile, firmName: e.target.value })}
                 />
               </Grid>
-              <Grid size={{ xs: 12 }}>
+              <Grid item xs={12}>
                 <TextField
                   fullWidth
                   label="Address"
@@ -128,7 +205,7 @@ export default function SettingsPage() {
                   onChange={(e) => setFirmProfile({ ...firmProfile, address: e.target.value })}
                 />
               </Grid>
-              <Grid size={{ xs: 12, sm: 6 }}>
+              <Grid item xs={12} sm={6}>
                 <TextField
                   fullWidth
                   label="Phone"
@@ -136,7 +213,7 @@ export default function SettingsPage() {
                   onChange={(e) => setFirmProfile({ ...firmProfile, phone: e.target.value })}
                 />
               </Grid>
-              <Grid size={{ xs: 12, sm: 6 }}>
+              <Grid item xs={12} sm={6}>
                 <TextField
                   fullWidth
                   label="Email"
@@ -144,7 +221,7 @@ export default function SettingsPage() {
                   onChange={(e) => setFirmProfile({ ...firmProfile, email: e.target.value })}
                 />
               </Grid>
-              <Grid size={{ xs: 12, sm: 6 }}>
+              <Grid item xs={12} sm={6}>
                 <TextField
                   fullWidth
                   label="SRA Number"
@@ -152,7 +229,7 @@ export default function SettingsPage() {
                   onChange={(e) => setFirmProfile({ ...firmProfile, sraNumber: e.target.value })}
                 />
               </Grid>
-              <Grid size={{ xs: 12 }}>
+              <Grid item xs={12}>
                 <Button variant="contained" color="primary">
                   Save Changes
                 </Button>
@@ -162,7 +239,7 @@ export default function SettingsPage() {
         </TabPanel>
 
         {/* Users Tab */}
-        <TabPanel value={tabValue} index={1}>
+        <TabPanel value={tabValue} index={2}>
           <Box sx={{ px: 3 }}>
             <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3 }}>
               <Typography variant="h6" sx={{ fontWeight: 600 }}>
@@ -228,7 +305,7 @@ export default function SettingsPage() {
         </TabPanel>
 
         {/* AI Settings Tab */}
-        <TabPanel value={tabValue} index={2}>
+        <TabPanel value={tabValue} index={3}>
           <Box sx={{ px: 3, maxWidth: 600 }}>
             <Typography variant="h6" sx={{ fontWeight: 600, mb: 3 }}>
               AI Features
@@ -313,7 +390,7 @@ export default function SettingsPage() {
         </TabPanel>
 
         {/* Data & Backup Tab */}
-        <TabPanel value={tabValue} index={3}>
+        <TabPanel value={tabValue} index={4}>
           <Box sx={{ px: 3, maxWidth: 600 }}>
             <Typography variant="h6" sx={{ fontWeight: 600, mb: 3 }}>
               Data Management
@@ -360,5 +437,13 @@ export default function SettingsPage() {
         </TabPanel>
       </Paper>
     </Box>
+  );
+}
+
+export default function SettingsPage() {
+  return (
+    <Suspense fallback={<Box sx={{ p: 4 }}>Loading Settings...</Box>}>
+      <SettingsContent />
+    </Suspense>
   );
 }

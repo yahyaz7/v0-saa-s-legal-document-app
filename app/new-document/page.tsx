@@ -433,7 +433,7 @@ function DocumentBuilderContent() {
       {!loading && !fetchError && (
         <Grid container spacing={3}>
           {/* ── LEFT: Dynamic form ────────────────────────────────────────── */}
-          <Grid size={{ xs: 12, md: 8 }}>
+          <Grid item xs={12} md={8}>
             <Paper sx={{ p: 3 }}>
               {sections.map((section, sectionIdx) => (
                 <Box key={section.name}>
@@ -446,7 +446,7 @@ function DocumentBuilderContent() {
 
                   <Grid container spacing={2}>
                     {section.fields.map((field) => (
-                      <Grid size={fieldColSpan(field)} key={field.field_key}>
+                      <Grid item xs={fieldColSpan(field).xs} sm={fieldColSpan(field).sm} md={fieldColSpan(field).md} key={field.field_key}>
                         <DynamicField
                           field={field}
                           value={
@@ -470,7 +470,7 @@ function DocumentBuilderContent() {
           </Grid>
 
           {/* ── RIGHT: Phrase bank & AI tools (unchanged) ─────────────────── */}
-          <Grid size={{ xs: 12, md: 4 }}>
+          <Grid item xs={12} md={4}>
             <Paper sx={{ p: 0, overflow: "hidden" }}>
               <Tabs
                 value={tabValue}
