@@ -53,7 +53,7 @@ export default function SuperAdminOverview() {
       headers: { Authorization: `Bearer ${token}` },
     });
 
-    if (res.ok) setFirms((await res.json()) as Firm[]);
+    if (res.ok) setFirms(((await res.json()).data ?? []) as Firm[]);
     setLoading(false);
   }, []);
 
@@ -95,7 +95,7 @@ export default function SuperAdminOverview() {
     setDialogOpen(false);
     setFirmName("");
     setFirmSlug("");
-    router.push(`/super-admin/firms/${json.id}`);
+    router.push(`/super-admin/firms/${json.data.id}`);
   }
 
   const totalUsers = firms.reduce((sum, f) => sum + f.userCount, 0);

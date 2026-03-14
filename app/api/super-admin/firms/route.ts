@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
-import { NextResponse, type NextRequest } from "next/server";
+import { type NextRequest } from "next/server";
+import { ok, created, err, badRequest, unauthorized, forbidden } from "@/lib/api/response";
 
 function makeAdminClient() {
   return createClient(
@@ -9,21 +10,22 @@ function makeAdminClient() {
   );
 }
 
-async function assertSuperAdmin(request: NextRequest): Promise<{ error: string; status: number } | null> {
+async function assertSuperAdmin(request: NextRequest): Promise<string | null> {
   const auth = request.headers.get("Authorization");
-  if (!auth?.startsWith("Bearer ")) return { error: "Unauthorized", status: 401 };
+  if (!auth?.startsWith("Bearer ")) return "unauthorized";
 
   const { data: { user }, error } = await makeAdminClient().auth.getUser(auth.slice(7));
-  if (error || !user) return { error: "Unauthorized", status: 401 };
-  if (user.app_metadata?.role !== "super_admin") return { error: "Forbidden", status: 403 };
+  if (error || !user) return "unauthorized";
+  if (user.app_metadata?.role !== "super_admin") return "forbidden";
   return null;
 }
 
 // GET /api/super-admin/firms
-// Returns all firms with their user counts
+// Returns { data: Firm[] } — each firm includes a userCount
 export async function GET(request: NextRequest) {
   const denied = await assertSuperAdmin(request);
-  if (denied) return NextResponse.json({ error: denied.error }, { status: denied.status });
+  if (denied === "unauthorized") return unauthorized();
+  if (denied === "forbidden") return forbidden();
 
   const db = makeAdminClient();
 
@@ -32,42 +34,37 @@ export async function GET(request: NextRequest) {
     .select("id, name, slug, created_at")
     .order("created_at", { ascending: false });
 
-  if (firmsError) return NextResponse.json({ error: firmsError.message }, { status: 500 });
+  if (firmsError) return err(firmsError.message);
 
-  // Count users per firm in one query
-  const { data: userCounts, error: countError } = await db
+  const { data: userRows, error: countError } = await db
     .from("users")
     .select("firm_id")
     .not("firm_id", "is", null);
 
-  if (countError) return NextResponse.json({ error: countError.message }, { status: 500 });
+  if (countError) return err(countError.message);
 
   const countMap: Record<string, number> = {};
-  for (const u of userCounts ?? []) {
-    if (u.firm_id) countMap[u.firm_id] = (countMap[u.firm_id] ?? 0) + 1;
+  for (const row of userRows ?? []) {
+    if (row.firm_id) countMap[row.firm_id] = (countMap[row.firm_id] ?? 0) + 1;
   }
 
-  const result = (firms ?? []).map((f) => ({
-    ...f,
-    userCount: countMap[f.id] ?? 0,
-  }));
-
-  return NextResponse.json(result);
+  const data = (firms ?? []).map((f) => ({ ...f, userCount: countMap[f.id] ?? 0 }));
+  return ok(data);
 }
 
 // POST /api/super-admin/firms
-// Creates a new firm
+// Body: { name: string; slug: string }
+// Returns { data: Firm }
 export async function POST(request: NextRequest) {
   const denied = await assertSuperAdmin(request);
-  if (denied) return NextResponse.json({ error: denied.error }, { status: denied.status });
+  if (denied === "unauthorized") return unauthorized();
+  if (denied === "forbidden") return forbidden();
 
   const body = await request.json().catch(() => ({}));
-  const name = body.name?.trim();
-  const slug = body.slug?.trim();
+  const name = (body.name as string)?.trim();
+  const slug = (body.slug as string)?.trim();
 
-  if (!name || !slug) {
-    return NextResponse.json({ error: "name and slug are required" }, { status: 400 });
-  }
+  if (!name || !slug) return badRequest("name and slug are required");
 
   const { data, error } = await makeAdminClient()
     .from("firms")
@@ -75,6 +72,70 @@ export async function POST(request: NextRequest) {
     .select("id, name, slug, created_at")
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ ...data, userCount: 0 }, { status: 201 });
+  if (error) return err(error.message);
+  return created({ ...data, userCount: 0 });
 }
+
+// PATCH /api/super-admin/firms?firmId=xxx
+// Body: { name?: string; slug?: string }
+export async function PATCH(request: NextRequest) {
+  const denied = await assertSuperAdmin(request);
+  if (denied === "unauthorized") return unauthorized();
+  if (denied === "forbidden") return forbidden();
+
+  const firmId = request.nextUrl.searchParams.get("firmId");
+  if (!firmId) return badRequest("firmId is required");
+
+  const body = await request.json().catch(() => ({}));
+  const updates: Record<string, string> = {};
+  if ((body.name as string)?.trim()) updates.name = (body.name as string).trim();
+  if ((body.slug as string)?.trim()) updates.slug = (body.slug as string).trim();
+
+  if (Object.keys(updates).length === 0) return badRequest("Nothing to update");
+
+  const { data, error } = await makeAdminClient()
+    .from("firms")
+    .update(updates)
+    .eq("id", firmId)
+    .select("id, name, slug, created_at")
+    .single();
+
+  if (error) return err(error.message);
+  return ok(data);
+}
+
+// DELETE /api/super-admin/firms?firmId=xxx
+// Deletes a firm and all its users
+export async function DELETE(request: NextRequest) {
+  const denied = await assertSuperAdmin(request);
+  if (denied === "unauthorized") return unauthorized();
+  if (denied === "forbidden") return forbidden();
+
+  const firmId = request.nextUrl.searchParams.get("firmId");
+  if (!firmId) return badRequest("firmId is required");
+
+  const db = makeAdminClient();
+
+  // 1. Load all users in this firm so we can delete them from auth
+  const { data: firmUsers, error: usersError } = await db
+    .from("users")
+    .select("id")
+    .eq("firm_id", firmId);
+
+  if (usersError) return err(usersError.message);
+
+  // 2. Delete each user from Supabase Auth
+  for (const u of firmUsers ?? []) {
+    await db.auth.admin.deleteUser(u.id);
+  }
+
+  // 3. Delete the firm record (users rows cascade via FK or were already removed)
+  const { error: firmError } = await db
+    .from("firms")
+    .delete()
+    .eq("id", firmId);
+
+  if (firmError) return err(firmError.message);
+  return ok({ deleted: true });
+}
+

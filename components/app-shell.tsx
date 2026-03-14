@@ -55,7 +55,8 @@ interface AppShellProps {
   children: ReactNode;
 }
 
-const publicRoutes = ["/login", "/register", "/forgot-password", "/reset-password", "/super-admin"];
+// Routes that render their own shell — AppShell must not wrap them
+const publicRoutes = ["/login", "/register", "/forgot-password", "/reset-password", "/super-admin", "/admin"];
 
 export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();

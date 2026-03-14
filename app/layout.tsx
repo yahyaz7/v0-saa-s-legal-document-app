@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import { MuiThemeProvider } from '@/components/mui-theme-provider'
-import { AppShell } from '@/components/app-shell'
+import { StaffShell } from '@/components/staff-shell'
 import { AppProvider } from '@/lib/app-context'
 import './globals.css'
 
@@ -41,7 +41,7 @@ export default function RootLayout({
       <body className={`${inter.variable} font-sans antialiased`}>
         <MuiThemeProvider>
           <AppProvider>
-            <AppShell>{children}</AppShell>
+            <StaffShell>{children}</StaffShell>
           </AppProvider>
         </MuiThemeProvider>
         <Analytics />
