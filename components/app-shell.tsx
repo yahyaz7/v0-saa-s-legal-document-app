@@ -35,7 +35,8 @@ import { createClient } from "@/lib/supabase/client";
 
 const drawerWidth = 240;
 
-const navItems = [
+// Base nav visible to all roles
+const baseNavItems = [
   { text: "Dashboard", icon: LayoutDashboard, href: "/" },
   { text: "New Document", icon: FilePlus, href: "/new-document" },
   { text: "Templates", icon: FileText, href: "/templates" },
@@ -45,11 +46,17 @@ const navItems = [
   { text: "Settings", icon: Settings, href: "/settings" },
 ];
 
+// Extra nav visible to firm admins only
+const adminNavItems = [
+  { text: "Team", icon: Users, href: "/users" },
+];
+
 interface AppShellProps {
   children: ReactNode;
 }
 
-const publicRoutes = ["/login", "/register", "/forgot-password"];
+// Routes that render their own shell — AppShell must not wrap them
+const publicRoutes = ["/login", "/register", "/forgot-password", "/reset-password", "/super-admin", "/admin"];
 
 export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
@@ -57,21 +64,27 @@ export function AppShell({ children }: AppShellProps) {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [userEmail, setUserEmail] = useState<string>("");
   const [userInitials, setUserInitials] = useState<string>("?");
+  const [userRole, setUserRole] = useState<string>("");
 
   useEffect(() => {
     const supabase = createClient();
-    supabase.auth.getUser().then(({ data: { user } }) => {
+    supabase.auth.getUser().then(({ data: { user } }: { data: { user: any } }) => {
       if (user?.email) {
         setUserEmail(user.email);
+        setUserRole((user.app_metadata?.role as string) ?? "");
         const parts = user.email.split("@")[0].split(/[._-]/);
         const initials = parts
           .slice(0, 2)
-          .map((p) => p[0]?.toUpperCase() ?? "")
+          .map((p: string) => p[0]?.toUpperCase() ?? "")
           .join("");
         setUserInitials(initials || user.email[0].toUpperCase());
       }
     });
   }, []);
+
+  const navItems = userRole === "admin"
+    ? [...baseNavItems, ...adminNavItems]
+    : baseNavItems;
 
   const handleMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
     setAnchorEl(event.currentTarget);
@@ -230,11 +243,11 @@ export function AppShell({ children }: AppShellProps) {
                   sx: { mt: 1, minWidth: 180 },
                 }}
               >
-                <MenuItem onClick={handleMenuClose}>
+                <MenuItem component={Link} href="/settings?tab=profile" onClick={handleMenuClose}>
                   <User size={16} style={{ marginRight: 12 }} />
                   Profile
                 </MenuItem>
-                <MenuItem onClick={handleMenuClose}>
+                <MenuItem component={Link} href="/settings" onClick={handleMenuClose}>
                   <Settings size={16} style={{ marginRight: 12 }} />
                   Settings
                 </MenuItem>

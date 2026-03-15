@@ -36,7 +36,7 @@ export default function TemplatesPage() {
       .from("templates")
       .select("id, name, description, category")
       .order("name")
-      .then(({ data, error }) => {
+      .then(({ data, error }: { data: any, error: any }) => {
         console.log("[v0] Templates response:", { data, error });
         if (error) {
           console.error("[v0] Templates error:", error);
@@ -87,7 +87,7 @@ export default function TemplatesPage() {
       {!loading && !error && (
         <Grid container spacing={3}>
           {templates.map((template) => (
-            <Grid size={{ xs: 12, sm: 6, md: 4 }} key={template.id}>
+            <Grid item xs={12} sm={6} md={4} key={template.id}>
               <Card
                 sx={{
                   height: "100%",
@@ -152,7 +152,7 @@ export default function TemplatesPage() {
           ))}
 
           {templates.length === 0 && (
-            <Grid size={{ xs: 12 }}>
+            <Grid item xs={12}>
               <Typography sx={{ color: "#666666", textAlign: "center", py: 6 }}>
                 No templates found. Add one to get started.
               </Typography>

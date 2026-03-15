@@ -362,7 +362,7 @@ export default function PhraseBankPage() {
             </Alert>
           )}
           <Grid container spacing={3} sx={{ pt: 1, minWidth: 0 }}>
-            <Grid size={{ xs: 12 }}>
+            <Grid item xs={12}>
               <TextField
                 fullWidth
                 label="Title"
@@ -370,7 +370,7 @@ export default function PhraseBankPage() {
                 onChange={(e) => setFormData({ ...formData, title: e.target.value })}
               />
             </Grid>
-            <Grid size={{ xs: 12 }}>
+            <Grid item xs={12}>
               <TextField
                 fullWidth
                 label="Content"
@@ -380,7 +380,7 @@ export default function PhraseBankPage() {
                 onChange={(e) => setFormData({ ...formData, content: e.target.value })}
               />
             </Grid>
-            <Grid size={{ xs: 12, sm: 6 }}>
+            <Grid item xs={12} sm={6}>
               <FormControl fullWidth>
                 <InputLabel>Offence Tags</InputLabel>
                 <Select
@@ -409,7 +409,7 @@ export default function PhraseBankPage() {
                 </Select>
               </FormControl>
             </Grid>
-            <Grid size={{ xs: 12, sm: 6 }}>
+            <Grid item xs={12} sm={6}>
               <FormControl fullWidth>
                 <InputLabel>Stage</InputLabel>
                 <Select
@@ -428,7 +428,7 @@ export default function PhraseBankPage() {
                 </Select>
               </FormControl>
             </Grid>
-            <Grid size={{ xs: 12, sm: 6 }}>
+            <Grid item xs={12} sm={6}>
               <FormControl fullWidth>
                 <InputLabel>Category</InputLabel>
                 <Select
@@ -447,7 +447,7 @@ export default function PhraseBankPage() {
                 </Select>
               </FormControl>
             </Grid>
-            <Grid size={{ xs: 12, sm: 6 }}>
+            <Grid item xs={12} sm={6}>
               <TextField
                 fullWidth
                 label="Trigger Keywords (comma separated)"
