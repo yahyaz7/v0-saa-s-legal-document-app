@@ -8,8 +8,6 @@ import {
   Grid,
   Tabs,
   Tab,
-  Card,
-  CardContent,
   Button,
   Chip,
   Switch,
@@ -30,21 +28,19 @@ import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { DynamicField, TemplateFieldDef, FieldValue } from "@/components/dynamic-field";
 import { saveDraft, loadDraft, DraftFormData } from "@/lib/drafts";
-import { generateMagistratesNote, buildFileName } from "@/lib/generate-docx";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface PhraseEntry {
+interface PhraseItem {
   id: string;
-  field_key: string | null;
-  title: string;
-  content: string;
-  category: string | null;
-  offence_tags: string[];
+  phrase_text: string;
 }
 
-/** Field keys that support phrase-bank insertion on this template. */
-const PHRASE_BANK_KEYS = ["instructions", "advice", "outcome", "next_action"];
+interface PhraseCategory {
+  id: string;
+  name: string;
+  phrases: PhraseItem[];
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -69,14 +65,7 @@ type FormValues = Record<string, FieldValue>;
 function initFormValues(fields: TemplateFieldDef[]): FormValues {
   const values: FormValues = {};
   for (const field of fields) {
-    if (field.field_type === "repeater") {
-      const emptyRow = Object.fromEntries(
-        (field.repeater_fields ?? []).map((f) => [f.key, ""])
-      );
-      values[field.field_key] = [emptyRow];
-    } else {
-      values[field.field_key] = "";
-    }
+    values[field.field_key] = field.field_type === "checkbox" ? false : "";
   }
   return values;
 }
@@ -96,13 +85,10 @@ function applyDraftData(base: FormValues, draft: DraftFormData): FormValues {
   return result;
 }
 
-/** Returns the Grid column span for a field based on its type and section. */
+/** Returns the Grid column span for a field based on its type. */
 function fieldColSpan(field: TemplateFieldDef) {
-  if (field.field_type === "repeater" || field.field_type === "textarea") {
+  if (field.field_type === "textarea") {
     return { xs: 12 };
-  }
-  if (field.section === "Time Recording") {
-    return { xs: 12, sm: 6, md: 4 };
   }
   return { xs: 12, sm: 6 };
 }
@@ -136,8 +122,8 @@ function DocumentBuilderContent() {
   const [snackbarSeverity, setSnackbarSeverity] = useState<"success" | "error">("success");
 
   // Phrase bank state
-  const [dbPhrases, setDbPhrases] = useState<PhraseEntry[]>([]);
-  const [phraseTargetField, setPhraseTargetField] = useState<string>(PHRASE_BANK_KEYS[0]);
+  const [phraseCategories, setPhraseCategories] = useState<PhraseCategory[]>([]);
+  const [phraseTargetField, setPhraseTargetField] = useState<string>("");
 
   // Right-panel state (unchanged from original)
   const [tabValue, setTabValue] = useState(0);
@@ -147,74 +133,85 @@ function DocumentBuilderContent() {
   // ── Data fetching ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (!templateId) {
-      setFetchError(
-        "No template selected. Go back to Templates and choose one."
-      );
+      setFetchError("No template selected. Go back to Templates and choose one.");
       setLoading(false);
       return;
     }
 
     const supabase = createClient();
 
-    Promise.all([
-      supabase.auth.getUser(),
-      supabase
-        .from("templates")
-        .select("name")
-        .eq("id", templateId)
-        .single(),
-      supabase
-        .from("template_fields")
-        .select("*")
-        .eq("template_id", templateId)
-        .order("section_order")
-        .order("field_order"),
-      // Load draft data when ?draft= is present in the URL
-      draftParam ? loadDraft(supabase, draftParam) : Promise.resolve(null),
-      // Load phrase bank entries for this template
-      supabase
-        .from("phrase_bank_entries")
-        .select("id, field_key, title, content, category, offence_tags")
-        .eq("template_id", templateId)
-        .order("title"),
-    ]).then(([userRes, templateRes, fieldsRes, draftData, phrasesRes]) => {
-      setUserId(userRes.data.user?.id ?? null);
+    async function fetchData() {
+      try {
+        setLoading(true);
+        // 1. Get Template & Active Version
+        const { data: versionData, error: vError } = await supabase
+          .from("template_versions")
+          .select(`
+            id,
+            template_id,
+            templates (name)
+          `)
+          .eq("template_id", templateId)
+          .eq("is_active", true)
+          .order("version_number", { ascending: false })
+          .limit(1)
+          .single();
 
-      if (templateRes.error || !templateRes.data) {
-        setFetchError("Template not found.");
-      } else if (fieldsRes.error) {
-        setFetchError("Failed to load template fields.");
-      } else {
-        const fields = (fieldsRes.data ?? []) as TemplateFieldDef[];
-        setTemplateName(templateRes.data.name);
+        if (vError || !versionData) throw new Error("Template version not found");
+
+        setTemplateName((versionData.templates as any).name);
+        const versionId = versionData.id;
+
+        // 2. Fetch Fields for this version
+        const { data: fieldsData, error: fError } = await supabase
+          .from("template_fields")
+          .select("*")
+          .eq("template_version_id", versionId)
+          .order("field_order");
+
+        if (fError) throw fError;
+
+        const fields = (fieldsData ?? []) as TemplateFieldDef[];
         setTemplateFields(fields);
+        
+        // 3. Initialise Form
         const base = initFormValues(fields);
-        setFormValues(draftData ? applyDraftData(base, draftData) : base);
-      }
+        
+        // 4. Load Draft if present
+        if (draftParam) {
+          const draftData = await loadDraft(supabase, draftParam);
+          setFormValues(draftData ? applyDraftData(base, draftData) : base);
+        } else {
+          setFormValues(base);
+        }
 
-      if (!phrasesRes.error) {
-        setDbPhrases((phrasesRes.data ?? []) as PhraseEntry[]);
-      }
+        // 5. Load Phrases from firm's phrase bank
+        const phrasesRes = await fetch("/api/phrases");
+        if (phrasesRes.ok) {
+          const phrasesJson = await phrasesRes.json();
+          if (phrasesJson.data) setPhraseCategories(phrasesJson.data);
+        }
 
-      setLoading(false);
-    });
+        setLoading(false);
+      } catch (err: any) {
+        setFetchError(err.message || "Failed to load template data");
+        setLoading(false);
+      }
+    }
+
+    supabase.auth.getUser().then(({ data }: { data: any }) => setUserId(data.user?.id ?? null));
+    fetchData();
   }, [templateId, draftParam]);
 
   // ── Section grouping ───────────────────────────────────────────────────────
+  // Phase 2 schema has no section column — all fields render in a single group,
+  // ordered by field_order.
   const sections = useMemo(() => {
-    const map = new Map<string, { order: number; fields: TemplateFieldDef[] }>();
-    for (const field of templateFields) {
-      if (!map.has(field.section)) {
-        map.set(field.section, { order: field.section_order, fields: [] });
-      }
-      map.get(field.section)!.fields.push(field);
-    }
-    return Array.from(map.entries())
-      .sort(([, a], [, b]) => a.order - b.order)
-      .map(([name, { fields }]) => ({
-        name,
-        fields: [...fields].sort((a, b) => a.field_order - b.field_order),
-      }));
+    if (templateFields.length === 0) return [];
+    return [{
+      name: "Document Fields",
+      fields: [...templateFields].sort((a, b) => a.field_order - b.field_order),
+    }];
   }, [templateFields]);
 
   // ── Form handlers ──────────────────────────────────────────────────────────
@@ -232,10 +229,10 @@ function DocumentBuilderContent() {
   const validate = (): boolean => {
     const errors: Record<string, string> = {};
     for (const field of templateFields) {
-      if (field.required) {
+      if (field.is_required) {
         const val = formValues[field.field_key];
         if (!val || (typeof val === "string" && !val.trim())) {
-          errors[field.field_key] = `${field.label} is required`;
+          errors[field.field_key] = `${field.field_label} is required`;
         }
       }
     }
@@ -245,35 +242,34 @@ function DocumentBuilderContent() {
 
   // ── Phrase bank ────────────────────────────────────────────────────────────
 
-  /** Dropdown options: only phrase-bank-eligible fields that exist in the template. */
-  const phraseTargetOptions = useMemo(
-    () =>
-      templateFields
-        .filter((f) => PHRASE_BANK_KEYS.includes(f.field_key))
-        .sort((a, b) => a.section_order - b.section_order || a.field_order - b.field_order)
-        .map((f) => ({ key: f.field_key, label: f.label })),
-    [templateFields]
-  );
+  /** Fields that have phrase bank support enabled — drives the "Insert into" dropdown. */
+  const phraseTargetOptions = useMemo(() => {
+    const opts = templateFields
+      .filter((f) => f.supports_phrase_bank)
+      .sort((a, b) => a.field_order - b.field_order)
+      .map((f) => ({ key: f.field_key, label: f.field_label }));
+    // Auto-select first eligible field once template loads
+    if (opts.length > 0 && !phraseTargetField) {
+      setPhraseTargetField(opts[0].key);
+    }
+    return opts;
+  }, [templateFields]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /** Phrases relevant to the currently-selected target field (plus generic ones with null field_key). */
-  const filteredPhrases = useMemo(
-    () => dbPhrases.filter((p) => p.field_key === phraseTargetField || p.field_key === null),
-    [dbPhrases, phraseTargetField]
-  );
-
-  /** Append phrase content to the target field value, separated by a blank line. */
-  const handleInsertPhrase = (content: string) => {
+  /** Append phrase text to the target field, separated by a blank line. */
+  const handleInsertPhrase = (phraseText: string) => {
+    if (!phraseTargetField) return;
     const current = (formValues[phraseTargetField] as string) ?? "";
-    const updated = current.trim() ? `${current}\n\n${content}` : content;
+    const updated = current.trim() ? `${current}\n\n${phraseText}` : phraseText;
     handleFieldChange(phraseTargetField, updated);
-    setSnackbarMessage("Phrase added to document.");
+    setSnackbarMessage("Phrase inserted.");
     setSnackbarSeverity("success");
     setSnackbarOpen(true);
   };
 
-  /** When a textarea gains focus, auto-target the phrase panel to that field. */
+  /** When a phrase-bank-enabled field gains focus, auto-switch the target dropdown. */
   const handleFieldFocus = (key: string) => {
-    if (PHRASE_BANK_KEYS.includes(key)) {
+    const field = templateFields.find((f) => f.field_key === key);
+    if (field?.supports_phrase_bank) {
       setPhraseTargetField(key);
     }
   };
@@ -328,8 +324,23 @@ function DocumentBuilderContent() {
     setDocxStatus("generating");
 
     try {
-      const blob = await generateMagistratesNote(formValues);
-      const fileName = buildFileName(formValues);
+      const response = await fetch("/api/generate-docx", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          templateId,
+          formData: formValues,
+          // We could also pass versionId if we want to pin it
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to generate document");
+      }
+
+      const blob = await response.blob();
+      const fileName = `${templateName.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().slice(0, 10)}.docx`;
 
       // Trigger browser download
       const url = URL.createObjectURL(blob);
@@ -341,24 +352,15 @@ function DocumentBuilderContent() {
       document.body.removeChild(anchor);
       URL.revokeObjectURL(url);
 
-      // Store generation metadata (no file upload for MVP)
-      const supabase = createClient();
-      await supabase.from("generated_documents").insert({
-        user_id: userId,
-        template_id: templateId,
-        ...(draftId ? { draft_id: draftId } : {}),
-        file_name: fileName,
-      });
-
       setDocxStatus("done");
-      setSnackbarMessage("DOCX downloaded successfully.");
+      setSnackbarMessage("DOCX generated and downloaded.");
       setSnackbarSeverity("success");
       setSnackbarOpen(true);
       setTimeout(() => setDocxStatus("idle"), 3000);
-    } catch (err) {
+    } catch (err: any) {
       console.error("DOCX generation error:", err);
       setDocxStatus("error");
-      setSnackbarMessage("Failed to generate DOCX. Please try again.");
+      setSnackbarMessage(err.message || "Failed to generate DOCX.");
       setSnackbarSeverity("error");
       setSnackbarOpen(true);
       setTimeout(() => setDocxStatus("idle"), 3000);
@@ -446,13 +448,10 @@ function DocumentBuilderContent() {
 
                   <Grid container spacing={2}>
                     {section.fields.map((field) => (
-                      <Grid item xs={fieldColSpan(field).xs} sm={fieldColSpan(field).sm} md={fieldColSpan(field).md} key={field.field_key}>
+                      <Grid item xs={fieldColSpan(field).xs} sm={fieldColSpan(field).sm} key={field.field_key}>
                         <DynamicField
                           field={field}
-                          value={
-                            formValues[field.field_key] ??
-                            (field.field_type === "repeater" ? [] : "")
-                          }
+                          value={formValues[field.field_key] ?? ""}
                           onChange={handleFieldChange}
                           onFocus={handleFieldFocus}
                           error={fieldErrors[field.field_key]}
@@ -490,113 +489,79 @@ function DocumentBuilderContent() {
                 <Tab label="Extracted Fields" />
               </Tabs>
 
-              {/* Tab 0 – Suggested Phrases */}
+              {/* Tab 0 – Phrase Bank */}
               <TabPanel value={tabValue} index={0}>
                 <Box sx={{ px: 2 }}>
-                  {/* Target field selector */}
-                  <FormControl fullWidth size="small" sx={{ mb: 2 }}>
-                    <InputLabel>Insert into</InputLabel>
-                    <Select
-                      value={phraseTargetField}
-                      label="Insert into"
-                      onChange={(e) => setPhraseTargetField(e.target.value)}
-                    >
-                      {phraseTargetOptions.map(({ key, label }) => (
-                        <MenuItem key={key} value={key}>
-                          {label}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-
-                  {/* Phrase list */}
-                  <Box sx={{ maxHeight: 430, overflow: "auto" }}>
-                    {filteredPhrases.length === 0 ? (
-                      <Typography
-                        variant="body2"
-                        sx={{ color: "#666666", textAlign: "center", py: 4 }}
-                      >
-                        No phrases available for this field.
-                      </Typography>
-                    ) : (
-                      filteredPhrases.map((phrase) => (
-                        <Card
-                          key={phrase.id}
-                          sx={{ mb: 2, border: "1px solid #E0E0E0", boxShadow: "none" }}
+                  {phraseTargetOptions.length === 0 ? (
+                    <Typography variant="body2" sx={{ color: "#666666", textAlign: "center", py: 4 }}>
+                      No fields in this template have phrase bank enabled.
+                    </Typography>
+                  ) : (
+                    <>
+                      {/* Target field selector */}
+                      <FormControl fullWidth size="small" sx={{ mb: 2 }}>
+                        <InputLabel>Insert into</InputLabel>
+                        <Select
+                          value={phraseTargetField}
+                          label="Insert into"
+                          onChange={(e) => setPhraseTargetField(e.target.value)}
                         >
-                          <CardContent sx={{ pb: "12px !important" }}>
-                            <Box
-                              sx={{
-                                display: "flex",
-                                justifyContent: "space-between",
-                                alignItems: "flex-start",
-                                mb: 0.5,
-                              }}
-                            >
+                          {phraseTargetOptions.map(({ key, label }) => (
+                            <MenuItem key={key} value={key}>{label}</MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+
+                      {/* Phrases grouped by category */}
+                      <Box sx={{ maxHeight: 430, overflow: "auto" }}>
+                        {phraseCategories.length === 0 ? (
+                          <Typography variant="body2" sx={{ color: "#666666", textAlign: "center", py: 4 }}>
+                            No phrases added yet. Ask your admin to add phrases.
+                          </Typography>
+                        ) : (
+                          phraseCategories.map((cat) => (
+                            <Box key={cat.id} sx={{ mb: 2 }}>
                               <Typography
-                                variant="subtitle2"
-                                sx={{ fontWeight: 600, fontSize: 14 }}
+                                variant="caption"
+                                sx={{ fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: 0.5, display: "block", mb: 0.5 }}
                               >
-                                {phrase.title}
+                                {cat.name} ({cat.phrases.length})
                               </Typography>
-                              {phrase.category && (
-                                <Chip
-                                  label={phrase.category}
-                                  size="small"
+                              {cat.phrases.map((phrase) => (
+                                <Box
+                                  key={phrase.id}
+                                  onClick={() => handleInsertPhrase(phrase.phrase_text)}
                                   sx={{
-                                    backgroundColor: "#F5F5F5",
-                                    color: "#666666",
-                                    fontSize: 10,
-                                    height: 18,
-                                    ml: 1,
-                                    flexShrink: 0,
+                                    p: 1.5,
+                                    mb: 0.75,
+                                    border: "1px solid #E5E7EB",
+                                    borderRadius: 1,
+                                    cursor: "pointer",
+                                    "&:hover": { bgcolor: "rgba(57,91,69,0.06)", borderColor: "#395B45" },
                                   }}
-                                />
-                              )}
+                                >
+                                  <Typography
+                                    variant="body2"
+                                    sx={{
+                                      fontSize: 12,
+                                      color: "#374151",
+                                      lineHeight: 1.5,
+                                      display: "-webkit-box",
+                                      WebkitLineClamp: 3,
+                                      WebkitBoxOrient: "vertical",
+                                      overflow: "hidden",
+                                    }}
+                                  >
+                                    {phrase.phrase_text}
+                                  </Typography>
+                                </Box>
+                              ))}
                             </Box>
-                            <Typography
-                              variant="body2"
-                              sx={{
-                                color: "#666666",
-                                fontSize: 12,
-                                lineHeight: 1.5,
-                                mb: 1,
-                                display: "-webkit-box",
-                                WebkitLineClamp: 3,
-                                WebkitBoxOrient: "vertical",
-                                overflow: "hidden",
-                              }}
-                            >
-                              {phrase.content}
-                            </Typography>
-                            {phrase.offence_tags?.length > 0 && (
-                              <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mb: 1 }}>
-                                {phrase.offence_tags.map((tag) => (
-                                  <Chip
-                                    key={tag}
-                                    label={tag}
-                                    size="small"
-                                    sx={{ backgroundColor: "#EEF2EE", fontSize: 10, height: 18 }}
-                                  />
-                                ))}
-                              </Box>
-                            )}
-                            <Button
-                              variant="outlined"
-                              color="primary"
-                              size="small"
-                              startIcon={<Plus size={14} />}
-                              fullWidth
-                              sx={{ mt: 0.5 }}
-                              onClick={() => handleInsertPhrase(phrase.content)}
-                            >
-                              Add to Document
-                            </Button>
-                          </CardContent>
-                        </Card>
-                      ))
-                    )}
-                  </Box>
+                          ))
+                        )}
+                      </Box>
+                    </>
+                  )}
                 </Box>
               </TabPanel>
 

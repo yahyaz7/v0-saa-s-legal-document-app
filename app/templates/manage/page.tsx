@@ -57,7 +57,6 @@ export default function ManageTemplatesPage() {
   const [dragOver, setDragOver] = useState(false);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [templateName, setTemplateName] = useState("");
-  const [templateCategory, setTemplateCategory] = useState("");
   const [templateDescription, setTemplateDescription] = useState("");
   const [detectedPlaceholders, setDetectedPlaceholders] = useState<DetectedPlaceholder[]>([]);
   const [saving, setSaving] = useState(false);
@@ -139,7 +138,6 @@ export default function ManageTemplatesPage() {
     
     addTemplate({
       name: templateName,
-      category: templateCategory,
       description: templateDescription,
       fields: detectedPlaceholders.map((p) => ({
         name: p.mappedField,
@@ -156,7 +154,6 @@ export default function ManageTemplatesPage() {
     setActiveStep(0);
     setUploadedFile(null);
     setTemplateName("");
-    setTemplateCategory("");
     setTemplateDescription("");
     setDetectedPlaceholders([]);
     setShowSuccess(false);
@@ -416,23 +413,6 @@ export default function ManageTemplatesPage() {
                     />
                   </Grid>
                   <Grid item xs={12}>
-                    <FormControl fullWidth>
-                      <InputLabel>Category</InputLabel>
-                      <Select
-                        value={templateCategory}
-                        label="Category"
-                        onChange={(e) => setTemplateCategory(e.target.value)}
-                      >
-                        <MenuItem value="Criminal Defence">Criminal Defence</MenuItem>
-                        <MenuItem value="Civil Litigation">Civil Litigation</MenuItem>
-                        <MenuItem value="Family Law">Family Law</MenuItem>
-                        <MenuItem value="Corporate">Corporate</MenuItem>
-                        <MenuItem value="Immigration">Immigration</MenuItem>
-                        <MenuItem value="Other">Other</MenuItem>
-                      </Select>
-                    </FormControl>
-                  </Grid>
-                  <Grid item xs={12}>
                     <TextField
                       fullWidth
                       label="Description"
@@ -457,10 +437,6 @@ export default function ManageTemplatesPage() {
                     <Box>
                       <Typography variant="caption" sx={{ color: "#666666" }}>Fields</Typography>
                       <Typography variant="body2" sx={{ fontWeight: 500 }}>{detectedPlaceholders.length}</Typography>
-                    </Box>
-                    <Box>
-                      <Typography variant="caption" sx={{ color: "#666666" }}>Category</Typography>
-                      <Typography variant="body2" sx={{ fontWeight: 500 }}>{templateCategory || "Not set"}</Typography>
                     </Box>
                   </Box>
                 </Box>
@@ -491,7 +467,7 @@ export default function ManageTemplatesPage() {
                   <Button
                     variant="contained"
                     onClick={handleSave}
-                    disabled={saving || !templateName || !templateCategory}
+                    disabled={saving || !templateName}
                     startIcon={saving ? null : <Check size={16} />}
                   >
                     {saving ? "Saving..." : "Save Template"}
@@ -515,7 +491,6 @@ export default function ManageTemplatesPage() {
             <TableHead>
               <TableRow sx={{ backgroundColor: "#F9F9F9" }}>
                 <TableCell sx={{ fontWeight: 600, color: "#666666" }}>Name</TableCell>
-                <TableCell sx={{ fontWeight: 600, color: "#666666" }}>Category</TableCell>
                 <TableCell sx={{ fontWeight: 600, color: "#666666" }}>Description</TableCell>
                 <TableCell sx={{ fontWeight: 600, color: "#666666" }} align="right">Actions</TableCell>
               </TableRow>
@@ -524,9 +499,6 @@ export default function ManageTemplatesPage() {
               {templates.map((template) => (
                 <TableRow key={template.id} sx={{ "&:hover": { backgroundColor: "#FAFAFA" } }}>
                   <TableCell sx={{ fontWeight: 500 }}>{template.name}</TableCell>
-                  <TableCell>
-                    <Chip label={template.category} size="small" sx={{ fontSize: 12 }} />
-                  </TableCell>
                   <TableCell sx={{ color: "#666666", maxWidth: 300 }}>
                     <Typography variant="body2" noWrap>
                       {template.description}
