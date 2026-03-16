@@ -159,18 +159,23 @@ function ManageTemplateContent() {
   };
 
   const handleAddField = () => {
-    setFields((prev) => [
-      ...prev,
-      {
-        id: crypto.randomUUID(),
-        field_name: "new_field",
-        field_label: "New Field",
-        field_type: "text",
-        is_required: false,
-        field_options: [],
-        supports_phrase_bank: false,
-      },
-    ]);
+    setFields((prev) => {
+      const existingKeys = new Set(prev.map((f) => f.field_name));
+      let n = prev.length + 1;
+      while (existingKeys.has(`field_${n}`)) n++;
+      return [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          field_name: `field_${n}`,
+          field_label: `Field ${n}`,
+          field_type: "text",
+          is_required: false,
+          field_options: [],
+          supports_phrase_bank: false,
+        },
+      ];
+    });
   };
 
   const handleSaveFields = async () => {
@@ -201,7 +206,6 @@ function ManageTemplateContent() {
     }
   };
 
-  // ── STEP 3 ─────────────────────────────────────────────────────────────────
 
   const handlePublish = async () => {
     if (!templateId) return;

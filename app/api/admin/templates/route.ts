@@ -29,24 +29,37 @@ export async function GET() {
 
   const { data, error } = await db
     .from("templates")
-    .select("id, name, description, is_active, created_at, template_versions(count)")
+    .select(`
+      id, name, description, is_active, created_at,
+      template_versions (
+        version_number, is_active
+      )
+    `)
     .eq("firm_id", firmId)
     .order("created_at", { ascending: false });
 
   if (error) return err(error.message);
 
   return ok(
-    (data ?? []).map((t) => ({
-      ...t,
-      versionCount: (t.template_versions as { count: number }[])[0]?.count ?? 0,
-    }))
+    (data ?? []).map((t) => {
+      const versions = (t.template_versions as { version_number: number; is_active: boolean }[]) ?? [];
+      const activeVersion = versions.find((v) => v.is_active);
+      const latestVersionNumber = activeVersion?.version_number
+        ?? Math.max(0, ...versions.map((v) => v.version_number));
+      return {
+        id: t.id,
+        name: t.name,
+        description: t.description,
+        is_active: t.is_active,
+        created_at: t.created_at,
+        version: latestVersionNumber,
+        versionCount: versions.length,
+      };
+    })
   );
 }
 
 // POST /api/admin/templates
-// Legacy single-shot endpoint: upload DOCX + insert fields in one request.
-// The stepper flow in /admin/templates/manage uses the dedicated upload /
-// detect-placeholders / fields/setup / publish endpoints instead.
 export async function POST(request: NextRequest) {
   const caller = await getAdminUser();
   if (!caller) return unauthorized();
