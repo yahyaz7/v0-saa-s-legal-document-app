@@ -31,7 +31,7 @@ import {
   Alert,
   CircularProgress,
 } from "@mui/material";
-import { FileText, Plus, Trash2, Eye, X, CheckCircle2, Pencil } from "lucide-react";
+import { FileText, Plus, Trash2, Eye, X, CheckCircle2, Pencil, PlayCircle } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import DynamicFormEngine from "@/components/dynamic-form-engine";
@@ -290,25 +290,42 @@ function AdminTemplatesContent() {
                     </Typography>
                   </TableCell>
                   <TableCell align="right">
-                    <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 0.5 }}>
-                      <Tooltip title="Preview form">
-                        <IconButton
-                          size="small"
-                          onClick={() => { setSelectedTemplate(template); setPreviewOpen(true); }}
-                          sx={{ color: "#6B7280", "&:hover": { bgcolor: "#F3F4F6" } }}
-                        >
-                          <Eye size={16} />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Edit fields">
-                        <IconButton
-                          size="small"
-                          onClick={() => openEditDialog(template)}
-                          sx={{ color: "#395B45", "&:hover": { bgcolor: "#F0FDF4" } }}
-                        >
-                          <Pencil size={16} />
-                        </IconButton>
-                      </Tooltip>
+                    <Box sx={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 0.5 }}>
+                      {template.is_active ? (
+                        /* Published — Preview + Edit + Delete */
+                        <>
+                          <Tooltip title="Preview form">
+                            <IconButton
+                              size="small"
+                              onClick={() => { setSelectedTemplate(template); setPreviewOpen(true); }}
+                              sx={{ color: "#6B7280", "&:hover": { bgcolor: "#F3F4F6" } }}
+                            >
+                              <Eye size={16} />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Edit fields">
+                            <IconButton
+                              size="small"
+                              onClick={() => openEditDialog(template)}
+                              sx={{ color: "#395B45", "&:hover": { bgcolor: "#F0FDF4" } }}
+                            >
+                              <Pencil size={16} />
+                            </IconButton>
+                          </Tooltip>
+                        </>
+                      ) : (
+                        /* Draft — Continue wizard only */
+                        <Tooltip title="Continue setup">
+                          <IconButton
+                            size="small"
+                            component={Link}
+                            href={`/admin/templates/manage?id=${template.id}`}
+                            sx={{ color: "#D97706", "&:hover": { bgcolor: "#FFFBEB" } }}
+                          >
+                            <PlayCircle size={16} />
+                          </IconButton>
+                        </Tooltip>
+                      )}
                       <Tooltip title="Delete template">
                         <IconButton
                           size="small"

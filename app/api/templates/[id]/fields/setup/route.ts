@@ -6,7 +6,8 @@ import { ok, err, badRequest, unauthorized, forbidden, notFound } from "@/lib/ap
 // POST /api/templates/[id]/fields/setup
 // Admin / super_admin only.
 // Replaces all field definitions for the template version (idempotent upsert).
-// Body: { fields: FieldConfig[]; versionId?: string }
+// Also persists the optional form heading onto the version row.
+// Body: { fields: FieldConfig[]; versionId?: string; formHeading?: string }
 // Returns { data: { saved: number } }
 export async function POST(
   request: NextRequest,
@@ -24,9 +25,10 @@ export async function POST(
   if (role !== "admin" && role !== "super_admin") return forbidden();
 
   const body = await request.json().catch(() => ({}));
-  const { fields, versionId } = body as {
+  const { fields, versionId, formHeading } = body as {
     fields?: Record<string, unknown>[];
     versionId?: string;
+    formHeading?: string;
   };
 
   if (!Array.isArray(fields)) return badRequest("'fields' must be an array");
@@ -48,6 +50,14 @@ export async function POST(
   const { data: version, error: vError } = await query.single();
   if (vError || !version) return notFound("Template version");
 
+  // Persist form heading onto the version row when provided
+  if (formHeading !== undefined) {
+    await db
+      .from("template_versions")
+      .update({ form_heading: formHeading || null })
+      .eq("id", version.id);
+  }
+
   // Delete existing fields for this version then re-insert (idempotent)
   await db.from("template_fields").delete().eq("template_version_id", version.id);
 
@@ -61,6 +71,7 @@ export async function POST(
       field_order: (f.field_order as number) ?? index,
       field_options: (f.field_options as unknown[]) ?? [],
       supports_phrase_bank: (f.supports_phrase_bank as boolean) ?? false,
+      section_heading: (f.section_heading as string) ?? null,
     }));
 
     const { error: insertError } = await db.from("template_fields").insert(rows);

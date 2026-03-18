@@ -27,6 +27,7 @@ export async function GET() {
       name,
       phrases (
         id,
+        label,
         phrase_text,
         created_at
       )

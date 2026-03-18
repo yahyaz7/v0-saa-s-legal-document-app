@@ -15,6 +15,10 @@ import {
   CircularProgress,
   Alert,
   Snackbar,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from "@mui/material";
 import { FileDown, Save, Check } from "lucide-react";
 import { useSearchParams } from "next/navigation";
@@ -26,6 +30,7 @@ import { saveDraft, loadDraft, DraftFormData } from "@/lib/drafts";
 
 interface PhraseItem {
   id: string;
+  label: string;
   phrase_text: string;
 }
 
@@ -74,6 +79,7 @@ function DocumentBuilderContent() {
   const draftParam = searchParams.get("draft");
 
   const [templateName, setTemplateName] = useState("");
+  const [formHeading, setFormHeading] = useState<string | null>(null);
   const [templateFields, setTemplateFields] = useState<TemplateFieldDef[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -91,6 +97,9 @@ function DocumentBuilderContent() {
 
   const [phraseCategories, setPhraseCategories] = useState<PhraseCategory[]>([]);
   const [phraseTargetField, setPhraseTargetField] = useState<string>("");
+  const [previewPhrase, setPreviewPhrase] = useState<PhraseItem | null>(null);
+  // Last known cursor position in a phrase-bank textarea — used for targeted insertion
+  const [cursorPos, setCursorPos] = useState<{ key: string; start: number; end: number } | null>(null);
 
   // ── Data fetching ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -111,7 +120,7 @@ function DocumentBuilderContent() {
         // 1. Active version + template name
         const { data: versionData, error: vError } = await supabase
           .from("template_versions")
-          .select("id, template_id, templates (name)")
+          .select("id, template_id, form_heading, templates (name)")
           .eq("template_id", templateId)
           .eq("is_active", true)
           .order("version_number", { ascending: false })
@@ -121,6 +130,7 @@ function DocumentBuilderContent() {
         if (vError || !versionData) throw new Error("Template version not found");
 
         setTemplateName((versionData.templates as any).name);
+        setFormHeading((versionData as any).form_heading ?? null);
 
         // 2. Fields for this version
         const { data: fieldsData, error: fError } = await supabase
@@ -159,13 +169,21 @@ function DocumentBuilderContent() {
     fetchData();
   }, [templateId, draftParam]);
 
-  // ── Sections (single group ordered by field_order) ─────────────────────────
+  // ── Sections: group consecutive fields sharing the same section_heading ──────
   const sections = useMemo(() => {
     if (templateFields.length === 0) return [];
-    return [{
-      name: "Document Fields",
-      fields: [...templateFields].sort((a, b) => a.field_order - b.field_order),
-    }];
+    const sorted = [...templateFields].sort((a, b) => a.field_order - b.field_order);
+    const result: Array<{ heading: string; fields: TemplateFieldDef[] }> = [];
+    for (const field of sorted) {
+      const heading = field.section_heading ?? "";
+      const last = result[result.length - 1];
+      if (!last || last.heading !== heading) {
+        result.push({ heading, fields: [field] });
+      } else {
+        last.fields.push(field);
+      }
+    }
+    return result;
   }, [templateFields]);
 
   // ── Form handlers ──────────────────────────────────────────────────────────
@@ -202,12 +220,32 @@ function DocumentBuilderContent() {
     return opts;
   }, [templateFields]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /** Append phrase text to the selected target field. */
+  /** Insert phrase text at the last known cursor position, or append if unknown. */
   function handleInsertPhrase(phraseText: string) {
     if (!phraseTargetField) return;
     const current = (formValues[phraseTargetField] as string) ?? "";
-    handleFieldChange(phraseTargetField, current.trim() ? `${current}\n\n${phraseText}` : phraseText);
+
+    let updated: string;
+    if (cursorPos?.key === phraseTargetField) {
+      // Insert at cursor, replacing any selected text
+      const { start, end } = cursorPos;
+      updated = current.slice(0, start) + phraseText + current.slice(end);
+      // Advance cursor to end of inserted text
+      setCursorPos({ key: phraseTargetField, start: start + phraseText.length, end: start + phraseText.length });
+    } else {
+      // Fallback: append at end with a single newline separator
+      updated = current ? `${current}\n${phraseText}` : phraseText;
+    }
+
+    handleFieldChange(phraseTargetField, updated);
     showSnackbar("Phrase inserted.", "success");
+  }
+
+  /** Capture cursor position when a phrase-bank textarea loses focus. */
+  function handleFieldBlur(key: string, start: number, end: number) {
+    if (templateFields.find((f) => f.field_key === key)?.supports_phrase_bank) {
+      setCursorPos({ key, start, end });
+    }
   }
 
   /** Auto-switch the target field when a phrase-bank-enabled textarea gains focus. */
@@ -304,11 +342,23 @@ function DocumentBuilderContent() {
           {/* ── LEFT: Dynamic form ─────────────────────────────────────── */}
           <Grid item xs={12} md={8}>
             <Paper sx={{ p: 3 }}>
-              {sections.map((section, idx) => (
-                <Box key={section.name}>
-                  <Typography variant="h6" sx={{ fontWeight: 600, mb: 2, color: "#1A1A1A" }}>
-                    {section.name}
+              {formHeading && (
+                <Box sx={{ mb: 3, pb: 2, borderBottom: "2px solid #E5E7EB", textAlign: "center" }}>
+                  <Typography variant="h5" sx={{ fontWeight: 800, letterSpacing: 1, color: "#111827", textTransform: "uppercase" }}>
+                    {formHeading}
                   </Typography>
+                </Box>
+              )}
+              {sections.map((section, idx) => (
+                <Box key={`section-${idx}`}>
+                  {section.heading && (
+                    <Typography
+                      variant="h6"
+                      sx={{ fontWeight: 700, mb: 2, mt: idx > 0 ? 1 : 0, color: "#1A1A1A" }}
+                    >
+                      {section.heading}
+                    </Typography>
+                  )}
                   <Grid container spacing={2}>
                     {section.fields.map((field) => (
                       <Grid item xs={fieldColSpan(field).xs} sm={fieldColSpan(field).sm} key={field.field_key}>
@@ -317,6 +367,7 @@ function DocumentBuilderContent() {
                           value={formValues[field.field_key] ?? ""}
                           onChange={handleFieldChange}
                           onFocus={handleFieldFocus}
+                          onBlur={handleFieldBlur}
                           error={fieldErrors[field.field_key]}
                         />
                       </Grid>
@@ -387,7 +438,7 @@ function DocumentBuilderContent() {
                             {cat.phrases.map((phrase) => (
                               <Box
                                 key={phrase.id}
-                                onClick={() => handleInsertPhrase(phrase.phrase_text)}
+                                onClick={() => setPreviewPhrase(phrase)}
                                 sx={{
                                   p: 1.5,
                                   mb: 0.75,
@@ -403,17 +454,9 @@ function DocumentBuilderContent() {
                               >
                                 <Typography
                                   variant="body2"
-                                  sx={{
-                                    fontSize: 12,
-                                    color: "#374151",
-                                    lineHeight: 1.5,
-                                    display: "-webkit-box",
-                                    WebkitLineClamp: 3,
-                                    WebkitBoxOrient: "vertical",
-                                    overflow: "hidden",
-                                  }}
+                                  sx={{ fontSize: 13, fontWeight: 600, color: "#111827" }}
                                 >
-                                  {phrase.phrase_text}
+                                  {phrase.label || phrase.phrase_text}
                                 </Typography>
                               </Box>
                             ))}
@@ -477,6 +520,45 @@ function DocumentBuilderContent() {
           {docxStatus === "generating" ? "Generating…" : docxStatus === "done" ? "Downloaded" : "Generate DOCX"}
         </Button>
       </Paper>
+
+      {/* Phrase preview dialog */}
+      <Dialog
+        open={!!previewPhrase}
+        onClose={() => setPreviewPhrase(null)}
+        fullWidth
+        maxWidth="sm"
+        PaperProps={{ sx: { borderRadius: 3 } }}
+      >
+        <DialogTitle sx={{ fontWeight: 700, pb: 1 }}>
+          {previewPhrase?.label || "Phrase"}
+        </DialogTitle>
+        <DialogContent>
+          <Typography
+            variant="body2"
+            sx={{ whiteSpace: "pre-wrap", color: "#374151", lineHeight: 1.7 }}
+          >
+            {previewPhrase?.phrase_text}
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2, gap: 1 }}>
+          <Button
+            onClick={() => setPreviewPhrase(null)}
+            sx={{ color: "#6B7280", textTransform: "none" }}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => {
+              if (previewPhrase) handleInsertPhrase(previewPhrase.phrase_text);
+              setPreviewPhrase(null);
+            }}
+            sx={{ bgcolor: "#395B45", "&:hover": { bgcolor: "#2D4A38" }, textTransform: "none", fontWeight: 600 }}
+          >
+            Insert into Field
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Feedback snackbar */}
       <Snackbar

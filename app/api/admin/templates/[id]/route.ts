@@ -25,7 +25,7 @@ async function requireAdmin() {
 }
 
 export async function GET(
-  req: NextRequest,
+  _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
@@ -45,7 +45,7 @@ export async function GET(
     if (tError) throw tError;
 
     // 2. Fetch Latest Version
-    const { data: version, error: vError } = await adminSupabase
+    const { data: version } = await adminSupabase
       .from("template_versions")
       .select("*")
       .eq("template_id", templateId)
@@ -77,7 +77,7 @@ export async function GET(
 }
 
 export async function DELETE(
-  req: NextRequest,
+  _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
@@ -85,32 +85,41 @@ export async function DELETE(
     const user = await requireAdmin();
     if (!user) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-    const adminSupabase = createAdminClient();
+    const db = createAdminClient();
 
-    // 1. Get all version file paths to clean up storage
-    const { data: versions } = await adminSupabase
+    // 1. Collect all storage file paths before touching the DB
+    const { data: versions, error: vFetchError } = await db
       .from("template_versions")
       .select("docx_template_path")
       .eq("template_id", templateId);
 
-    const filePaths = versions?.map(v => v.docx_template_path) || [];
+    if (vFetchError) throw vFetchError;
 
-    // 2. Delete the template (cascades to versions and fields)
-    const { error: deleteError } = await adminSupabase
+    const filePaths = (versions ?? [])
+      .map((v) => v.docx_template_path)
+      .filter(Boolean) as string[];
+
+    // 2. Delete files from storage first — abort if this fails so the DB record is preserved
+    if (filePaths.length > 0) {
+      const { error: storageError } = await db.storage
+        .from("docx-templates")
+        .remove(filePaths);
+
+      if (storageError) {
+        console.error("[Template Delete] Storage removal failed:", storageError);
+        throw new Error(`Failed to delete template files from storage: ${storageError.message}`);
+      }
+    }
+
+    // 3. Delete DB record — cascades to template_versions and template_fields
+    const { error: deleteError } = await db
       .from("templates")
       .delete()
       .eq("id", templateId);
 
     if (deleteError) throw deleteError;
 
-    // 3. Clean up storage
-    if (filePaths.length > 0) {
-      await adminSupabase.storage
-        .from("docx-templates")
-        .remove(filePaths);
-    }
-
-    return NextResponse.json({ success: true, message: "Template and all versions deleted successfully" });
+    return NextResponse.json({ success: true });
 
   } catch (error: any) {
     console.error("[Template Delete Error]:", error);

@@ -29,6 +29,7 @@ export interface TemplateFieldDef {
   field_order: number;
   field_options: string[] | null;
   supports_phrase_bank: boolean;
+  section_heading?: string | null;
 }
 
 export type FieldValue = string | boolean | Array<Record<string, string>>;
@@ -41,6 +42,8 @@ interface DynamicFieldProps {
   readOnly?: boolean;
   /** Called when a textarea gains focus — used to auto-target the phrase panel. */
   onFocus?: (key: string) => void;
+  /** Called when a textarea loses focus — reports cursor position for phrase insertion. */
+  onBlur?: (key: string, start: number, end: number) => void;
 }
 
 // ── Component ──────────────────────────────────────────────────────────────────
@@ -52,6 +55,7 @@ export function DynamicField({
   error,
   readOnly,
   onFocus,
+  onBlur,
 }: DynamicFieldProps) {
   const strValue = typeof value === "string" ? value : "";
   const boolValue = typeof value === "boolean" ? value : false;
@@ -131,6 +135,10 @@ export function DynamicField({
         value={strValue}
         onChange={(e) => onChange(field.field_key, e.target.value)}
         onFocus={() => onFocus?.(field.field_key)}
+        onBlur={(e) => {
+          const el = e.target as HTMLTextAreaElement;
+          onBlur?.(field.field_key, el.selectionStart ?? strValue.length, el.selectionEnd ?? strValue.length);
+        }}
         error={!!error}
         helperText={error}
         disabled={readOnly}

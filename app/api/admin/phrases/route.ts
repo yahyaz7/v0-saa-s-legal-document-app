@@ -32,6 +32,7 @@ export async function GET(req: NextRequest) {
         name,
         phrases (
           id,
+          label,
           phrase_text,
           created_at
         )
@@ -70,17 +71,17 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { id, category_id, phrase_text } = body;
+    const { id, category_id, phrase_text, label } = body;
 
-    if (!category_id || !phrase_text) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+    if (!category_id || !phrase_text || !label) {
+      return NextResponse.json({ error: "Missing required fields: category_id, phrase_text, label" }, { status: 400 });
     }
 
     if (id) {
       // Update
       const { data, error } = await supabase
         .from("phrases")
-        .update({ category_id, phrase_text, updated_at: new Date().toISOString() })
+        .update({ category_id, phrase_text, label, updated_at: new Date().toISOString() })
         .eq("id", id)
         .select()
         .single();
@@ -90,7 +91,7 @@ export async function POST(req: NextRequest) {
       // Create
       const { data, error } = await supabase
         .from("phrases")
-        .insert({ category_id, phrase_text, created_by: user.id })
+        .insert({ category_id, phrase_text, label, created_by: user.id })
         .select()
         .single();
       if (error) throw error;

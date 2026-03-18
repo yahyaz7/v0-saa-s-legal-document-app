@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Box,
   Typography,
@@ -36,8 +36,7 @@ import {
   Trash2,
   HelpCircle,
 } from "lucide-react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 
 interface DetectedField {
@@ -48,6 +47,7 @@ interface DetectedField {
   is_required: boolean;
   field_options: string[];
   supports_phrase_bank: boolean;
+  section_heading: string;
 }
 
 const fieldTypeOptions = [
@@ -62,8 +62,11 @@ const steps = ["Upload DOCX", "Field Configuration", "Publish Template"];
 
 function ManageTemplateContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const existingId = searchParams.get("id");
 
-  const [activeStep, setActiveStep] = useState(0);
+  // Start at step 1 immediately when resuming a draft — avoids flash of step 0
+  const [activeStep, setActiveStep] = useState(existingId ? 1 : 0);
   const [dragOver, setDragOver] = useState(false);
 
   // Step 1
@@ -75,11 +78,63 @@ function ManageTemplateContent() {
 
   // Step 2
   const [fields, setFields] = useState<DetectedField[]>([]);
+  const [formHeading, setFormHeading] = useState("");
 
   // General
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
+
+  // ── Load existing draft when ?id= is present ───────────────────────────────
+  useEffect(() => {
+    if (!existingId) return;
+    setLoading(true);
+    fetch(`/api/admin/templates/${existingId}`)
+      .then((r) => r.json())
+      .then((json) => {
+        if (!json.data) throw new Error("Not found");
+        const { template, version, fields: dbFields } = json.data;
+        setTemplateId(template.id);
+        setTemplateName(template.name);
+        setTemplateDescription(template.description || "");
+        if (version) {
+          setVersionId(version.id);
+          if (version.form_heading) setFormHeading(version.form_heading);
+          const mapped: DetectedField[] = (dbFields ?? []).map((f: any) => ({
+            id: f.id ?? crypto.randomUUID(),
+            field_name: f.field_key,
+            field_label: f.field_label,
+            field_type: f.field_type,
+            is_required: f.is_required,
+            field_options: f.field_options ?? [],
+            supports_phrase_bank: f.supports_phrase_bank,
+            section_heading: f.section_heading ?? "",
+          }));
+          setFields(mapped);
+          setActiveStep(1); // always land on field configuration when resuming a draft
+        }
+      })
+      .catch(() => setError("Failed to load template draft."))
+      .finally(() => setLoading(false));
+  }, [existingId]);
+
+  // ── Save fields silently and navigate back ─────────────────────────────────
+  const handleSaveAndGoBack = async () => {
+    if (templateId && fields.length > 0) {
+      const cleanedFields = fields.map((f) => ({
+        ...f,
+        field_label: f.field_label.trim(),
+        field_name: f.field_name.trim(),
+        field_options: f.field_options.map((o) => o.trim()).filter((o) => o !== ""),
+      }));
+      await fetch(`/api/templates/${templateId}/fields/setup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fields: cleanedFields, versionId, formHeading }),
+      }).catch(() => {}); // best-effort — don't block navigation
+    }
+    router.push("/admin/templates");
+  };
 
   // ── STEP 1 ─────────────────────────────────────────────────────────────────
 
@@ -96,8 +151,12 @@ function ManageTemplateContent() {
 
     setLoading(true);
     setError(null);
+
+    // Track the newly created template so we can roll it back on any failure
+    let createdTemplateId: string | null = null;
+
     try {
-      // 1. Upload — always creates a new template
+      // 1. Upload — always creates a new template record + version
       const formData = new FormData();
       formData.append("file", uploadedFile);
       formData.append("name", templateName);
@@ -112,8 +171,9 @@ function ManageTemplateContent() {
 
       const newTemplateId = uploadData.data.template_id;
       const newVersionId = uploadData.data.version_id;
-      setTemplateId(newTemplateId);
-      setVersionId(newVersionId);
+
+      // Record ID so the catch block can clean up if anything below fails
+      createdTemplateId = newTemplateId;
 
       // 2. Detect placeholders
       const detectRes = await fetch(`/api/templates/${newTemplateId}/detect-placeholders`, {
@@ -124,21 +184,46 @@ function ManageTemplateContent() {
       const detectData = await detectRes.json();
       if (!detectRes.ok) throw new Error(detectData.error || "Detection failed");
 
-      // 3. Map to field objects
-      const initialFields: DetectedField[] = (detectData.data as string[]).map((ph) => ({
-        id: crypto.randomUUID(),
-        field_name: ph,
-        field_label: ph.split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" "),
-        field_type: "text",
-        is_required: false,
-        field_options: [],
-        supports_phrase_bank: false,
-      }));
+      // Detection succeeded — commit IDs to state
+      setTemplateId(newTemplateId);
+      setVersionId(newVersionId);
+      createdTemplateId = null; // no longer needs rollback
+
+      // 3. Map detected items (headings + placeholders) to initial field objects
+      type DetectedItem = { type: "heading" | "placeholder"; value: string };
+      const { items: detectedItems, suggested_heading } = detectData.data as {
+        items: DetectedItem[];
+        suggested_heading: string | null;
+      };
+      if (suggested_heading) setFormHeading(suggested_heading);
+      let currentHeading = "";
+      const initialFields: DetectedField[] = [];
+      for (const item of detectedItems) {
+        if (item.type === "heading") {
+          currentHeading = item.value;
+        } else {
+          initialFields.push({
+            id: crypto.randomUUID(),
+            field_name: item.value,
+            field_label: item.value.split("_").map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(" "),
+            field_type: "text",
+            is_required: false,
+            field_options: [],
+            supports_phrase_bank: false,
+            section_heading: currentHeading,
+          });
+        }
+      }
 
       setFields(initialFields);
       setActiveStep(1);
     } catch (err: any) {
       setError(err.message);
+
+      // Roll back the template record + storage file so it never appears in the list
+      if (createdTemplateId) {
+        await fetch(`/api/admin/templates/${createdTemplateId}`, { method: "DELETE" }).catch(() => {});
+      }
     } finally {
       setLoading(false);
     }
@@ -173,6 +258,7 @@ function ManageTemplateContent() {
           is_required: false,
           field_options: [],
           supports_phrase_bank: false,
+          section_heading: "",
         },
       ];
     });
@@ -193,7 +279,7 @@ function ManageTemplateContent() {
       const res = await fetch(`/api/templates/${templateId}/fields/setup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fields: cleanedFields, versionId }),
+        body: JSON.stringify({ fields: cleanedFields, versionId, formHeading }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Setup failed");
@@ -226,7 +312,7 @@ function ManageTemplateContent() {
   return (
     <Box>
       <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 4 }}>
-        <IconButton component={Link} href="/admin/templates" sx={{ bgcolor: "#F3F4F6" }}>
+        <IconButton onClick={handleSaveAndGoBack} sx={{ bgcolor: "#F3F4F6" }}>
           <ArrowLeft size={18} />
         </IconButton>
         <Box>
@@ -336,6 +422,32 @@ function ManageTemplateContent() {
         {/* ── Step 2: Configure Fields ── */}
         {activeStep === 1 && (
           <Box>
+            {/* Form Heading — detected from DOCX, editable, mandatory */}
+            <Box sx={{ textAlign: "center", mb: 4 }}>
+              <Typography variant="caption" sx={{ color: "#6B7280", display: "block", mb: 1 }}>
+                Form Heading <span style={{ color: "#EF4444" }}>*</span>
+              </Typography>
+              <TextField
+                fullWidth
+                value={formHeading}
+                onChange={(e) => setFormHeading(e.target.value)}
+                placeholder="e.g. COURT ATTENDANCE NOTE"
+                required
+                error={formHeading.trim() === ""}
+                helperText={formHeading.trim() === "" ? "Form heading is required" : "Displayed at the top of the form when users fill it in"}
+                inputProps={{
+                  style: {
+                    textAlign: "center",
+                    fontWeight: 800,
+                    fontSize: "1.1rem",
+                    letterSpacing: 1,
+                    textTransform: "uppercase",
+                  },
+                }}
+                sx={{ maxWidth: 560, mx: "auto" }}
+              />
+            </Box>
+
             <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3 }}>
               <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
                 <FileText color="#395B45" />
@@ -448,7 +560,7 @@ function ManageTemplateContent() {
               <Button
                 variant="contained"
                 onClick={handleSaveFields}
-                disabled={loading}
+                disabled={loading || !formHeading.trim()}
                 sx={{ bgcolor: "#395B45", "&:hover": { bgcolor: "#2D4A38" }, textTransform: "none", px: 4 }}
               >
                 {loading ? "Saving…" : "Next: Verify & Publish"}
@@ -525,6 +637,7 @@ function ManageTemplateContent() {
           Use <code>Dropdown</code> for fields with fixed options to ensure data consistency.
         </Typography>
       </Box>
+
     </Box>
   );
 }

@@ -29,6 +29,7 @@ import {
 
 interface Phrase {
   id: string;
+  label: string;
   phrase_text: string;
   created_at: string;
 }
@@ -49,7 +50,7 @@ export default function AdminPhraseBankPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   const [editCategory, setEditCategory] = useState<{ id?: string; name: string }>({ name: "" });
-  const [editPhrase, setEditPhrase] = useState<{ id?: string; category_id: string; phrase_text: string }>({ category_id: "", phrase_text: "" });
+  const [editPhrase, setEditPhrase] = useState<{ id?: string; category_id: string; label: string; phrase_text: string }>({ category_id: "", label: "", phrase_text: "" });
   const [deleteTarget, setDeleteTarget] = useState<{ type: "category" | "phrase"; id: string } | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -244,7 +245,7 @@ export default function AdminPhraseBankPage() {
                     startIcon={<Plus size={14} />}
                     size="small"
                     onClick={() => {
-                      setEditPhrase({ category_id: selectedCategoryId, phrase_text: "" });
+                      setEditPhrase({ category_id: selectedCategoryId, label: "", phrase_text: "" });
                       setPhraseDialogOpen(true);
                     }}
                     sx={{ color: "#395B45", borderColor: "#395B45", textTransform: "none", fontWeight: 600, borderRadius: 2 }}
@@ -272,22 +273,20 @@ export default function AdminPhraseBankPage() {
                     </Box>
                   ) : (
                     activeCategory?.phrases.map((phrase) => (
-                      <Card
-                        key={phrase.id}
-                        elevation={0}
-                        sx={{ mb: 2, border: "1px solid #E5E7EB", borderRadius: 2, "&:last-child": { mb: 0 } }}
-                      >
+                      <Card key={phrase.id} elevation={0} sx={{ mb: 2, border: "1px solid #E5E7EB", borderRadius: 2 }}>
                         <Box sx={{ p: 2, display: "flex", gap: 2, alignItems: "center" }}>
-                          <Typography
-                            variant="body2"
-                            sx={{ flexGrow: 1, whiteSpace: "pre-wrap", color: "#374151", lineHeight: 1.6 }}
-                          >
-                            {phrase.phrase_text}
-                          </Typography>
+                          <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+                            <Typography variant="subtitle2" sx={{ fontWeight: 700, color: "#111827", mb: 0.5 }}>
+                              {phrase.label}
+                            </Typography>
+                            <Typography variant="body2" sx={{ color: "#6B7280", whiteSpace: "pre-wrap", lineHeight: 1.6 }}>
+                              {phrase.phrase_text}
+                            </Typography>
+                          </Box>
                           <Box sx={{ display: "flex", flexShrink: 0, gap: 0.5 }}>
                             <IconButton
                               size="small"
-                              onClick={() => { setEditPhrase({ id: phrase.id, category_id: selectedCategoryId, phrase_text: phrase.phrase_text }); setPhraseDialogOpen(true); }}
+                              onClick={() => { setEditPhrase({ id: phrase.id, category_id: selectedCategoryId, label: phrase.label, phrase_text: phrase.phrase_text }); setPhraseDialogOpen(true); }}
                               sx={{ color: "#6B7280", "&:hover": { bgcolor: "#F3F4F6" } }}
                             >
                               <Edit2 size={14} />
@@ -354,6 +353,16 @@ export default function AdminPhraseBankPage() {
           <TextField
             autoFocus
             margin="dense"
+            label="Label"
+            fullWidth
+            variant="outlined"
+            value={editPhrase.label}
+            onChange={(e) => setEditPhrase({ ...editPhrase, label: e.target.value })}
+            placeholder="e.g. No Comment Advice"
+            sx={{ mt: 1 }}
+          />
+          <TextField
+            margin="dense"
             label="Phrase Text"
             fullWidth
             multiline
@@ -361,15 +370,14 @@ export default function AdminPhraseBankPage() {
             variant="outlined"
             value={editPhrase.phrase_text}
             onChange={(e) => setEditPhrase({ ...editPhrase, phrase_text: e.target.value })}
-            placeholder="Enter the legal phrase here…"
-            sx={{ mt: 1 }}
+            placeholder="Enter the full legal phrase here…"
           />
         </DialogContent>
         <DialogActions sx={{ px: 3, py: 2, gap: 1 }}>
           <Button onClick={() => setPhraseDialogOpen(false)} sx={{ color: "#6B7280", textTransform: "none" }}>Cancel</Button>
           <Button
             variant="contained"
-            disabled={!editPhrase.phrase_text.trim() || saving}
+            disabled={!editPhrase.label.trim() || !editPhrase.phrase_text.trim() || saving}
             onClick={handleSavePhrase}
             sx={{ bgcolor: "#395B45", "&:hover": { bgcolor: "#2D4A38" }, textTransform: "none", fontWeight: 600 }}
           >
