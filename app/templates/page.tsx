@@ -114,8 +114,8 @@ export default function TemplatesPage() {
                     >
                       <FileText size={20} color="#395B45" />
                     </Box>
-                    <Box>
-                      <Typography variant="h6" sx={{ fontWeight: 600, fontSize: 16, mb: 0.5 }}>
+                    <Box sx={{ minWidth: 0, flex: 1 }}>
+                      <Typography variant="h6" sx={{ fontWeight: 600, fontSize: 16, mb: 0.5, wordBreak: "break-word" }}>
                         {template.name}
                       </Typography>
                     </Box>

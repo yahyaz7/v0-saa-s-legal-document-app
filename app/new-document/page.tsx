@@ -12,6 +12,7 @@ import {
   Select,
   MenuItem,
   Divider,
+  Collapse,
   CircularProgress,
   Alert,
   Snackbar,
@@ -20,7 +21,7 @@ import {
   DialogContent,
   DialogActions,
 } from "@mui/material";
-import { FileDown, Save, Check } from "lucide-react";
+import { FileDown, Save, Check, ChevronDown } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { DynamicField, TemplateFieldDef, FieldValue } from "@/components/dynamic-field";
@@ -98,6 +99,7 @@ function DocumentBuilderContent() {
   const [phraseCategories, setPhraseCategories] = useState<PhraseCategory[]>([]);
   const [phraseTargetField, setPhraseTargetField] = useState<string>("");
   const [previewPhrase, setPreviewPhrase] = useState<PhraseItem | null>(null);
+  const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
   // Last known cursor position in a phrase-bank textarea — used for targeted insertion
   const [cursorPos, setCursorPos] = useState<{ key: string; start: number; end: number } | null>(null);
 
@@ -157,7 +159,10 @@ function DocumentBuilderContent() {
         const phrasesRes = await fetch("/api/phrases");
         if (phrasesRes.ok) {
           const phrasesJson = await phrasesRes.json();
-          if (phrasesJson.data) setPhraseCategories(phrasesJson.data);
+          if (phrasesJson.data) {
+            setPhraseCategories(phrasesJson.data);
+            if (phrasesJson.data.length > 0) setExpandedCategory(phrasesJson.data[0].id);
+          }
         }
       } catch (err: any) {
         setFetchError(err.message || "Failed to load template data");
@@ -413,55 +418,128 @@ function DocumentBuilderContent() {
                       </Select>
                     </FormControl>
 
-                    {/* Phrase list grouped by category */}
-                    <Box sx={{ maxHeight: 460, overflowY: "auto" }}>
+                    {/* Phrase list — accordion by category */}
+                    <Box sx={{ maxHeight: 480, overflowY: "auto", mx: -0.5 }}>
                       {phraseCategories.length === 0 ? (
                         <Typography variant="body2" sx={{ color: "#9CA3AF", textAlign: "center", py: 4 }}>
                           No phrases added yet. Ask your admin to add phrases.
                         </Typography>
                       ) : (
-                        phraseCategories.map((cat) => (
-                          <Box key={cat.id} sx={{ mb: 2 }}>
-                            <Typography
-                              variant="caption"
+                        phraseCategories.map((cat, idx) => {
+                          const isOpen = expandedCategory === cat.id;
+                          return (
+                            <Box
+                              key={cat.id}
                               sx={{
-                                fontWeight: 700,
-                                color: "#6B7280",
-                                textTransform: "uppercase",
-                                letterSpacing: 0.5,
-                                display: "block",
-                                mb: 0.75,
+                                border: "1px solid #E5E7EB",
+                                borderRadius: 2,
+                                mb: 1,
+                                overflow: "hidden",
+                                boxShadow: isOpen ? "0 2px 8px rgba(0,0,0,0.06)" : "none",
+                                transition: "box-shadow 0.2s",
                               }}
                             >
-                              {cat.name} ({cat.phrases.length})
-                            </Typography>
-                            {cat.phrases.map((phrase) => (
+                              {/* Category header — clickable toggle */}
                               <Box
-                                key={phrase.id}
-                                onClick={() => setPreviewPhrase(phrase)}
+                                onClick={() => setExpandedCategory(isOpen ? null : cat.id)}
                                 sx={{
-                                  p: 1.5,
-                                  mb: 0.75,
-                                  border: "1px solid #E5E7EB",
-                                  borderRadius: 1,
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "space-between",
+                                  px: 1.5,
+                                  py: 1.25,
                                   cursor: "pointer",
-                                  transition: "all 0.15s",
-                                  "&:hover": {
-                                    bgcolor: "rgba(57,91,69,0.06)",
-                                    borderColor: "#395B45",
-                                  },
+                                  bgcolor: isOpen ? "#F0F5F1" : "#F9FAFB",
+                                  borderBottom: isOpen ? "1px solid #E5E7EB" : "none",
+                                  transition: "background-color 0.15s",
+                                  "&:hover": { bgcolor: "#EBF2EC" },
+                                  userSelect: "none",
                                 }}
                               >
-                                <Typography
-                                  variant="body2"
-                                  sx={{ fontSize: 13, fontWeight: 600, color: "#111827" }}
+                                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                                  <Typography variant="body2" sx={{ fontWeight: 700, color: "#111827" }}>
+                                    {cat.name}
+                                  </Typography>
+                                  <Box
+                                    sx={{
+                                      bgcolor: isOpen ? "#395B45" : "#E5E7EB",
+                                      color: isOpen ? "#fff" : "#6B7280",
+                                      borderRadius: 10,
+                                      px: 0.75,
+                                      py: 0.1,
+                                      fontSize: 11,
+                                      fontWeight: 700,
+                                      lineHeight: 1.6,
+                                      minWidth: 20,
+                                      textAlign: "center",
+                                      transition: "all 0.15s",
+                                    }}
+                                  >
+                                    {cat.phrases.length}
+                                  </Box>
+                                </Box>
+                                <Box
+                                  sx={{
+                                    transform: isOpen ? "rotate(180deg)" : "rotate(0deg)",
+                                    transition: "transform 0.2s",
+                                    display: "flex",
+                                    color: "#6B7280",
+                                  }}
                                 >
-                                  {phrase.label || phrase.phrase_text}
-                                </Typography>
+                                  <ChevronDown size={16} />
+                                </Box>
                               </Box>
-                            ))}
-                          </Box>
-                        ))
+
+                              {/* Phrases — collapsed by default */}
+                              <Collapse in={isOpen} timeout={200}>
+                                <Box sx={{ p: 1, bgcolor: "#fff" }}>
+                                  {cat.phrases.length === 0 ? (
+                                    <Typography variant="caption" sx={{ color: "#9CA3AF", display: "block", textAlign: "center", py: 1.5 }}>
+                                      No phrases in this category.
+                                    </Typography>
+                                  ) : (
+                                    cat.phrases.map((phrase) => (
+                                      <Box
+                                        key={phrase.id}
+                                        onClick={() => setPreviewPhrase(phrase)}
+                                        sx={{
+                                          display: "flex",
+                                          alignItems: "center",
+                                          gap: 1,
+                                          px: 1.25,
+                                          py: 1,
+                                          mb: 0.5,
+                                          borderRadius: 1.5,
+                                          cursor: "pointer",
+                                          border: "1px solid transparent",
+                                          transition: "all 0.15s",
+                                          "&:hover": {
+                                            bgcolor: "rgba(57,91,69,0.06)",
+                                            border: "1px solid #C4D9C8",
+                                          },
+                                          "&:last-child": { mb: 0 },
+                                        }}
+                                      >
+                                        <Box
+                                          sx={{
+                                            width: 5,
+                                            height: 5,
+                                            borderRadius: "50%",
+                                            bgcolor: "#395B45",
+                                            flexShrink: 0,
+                                          }}
+                                        />
+                                        <Typography variant="body2" sx={{ fontSize: 13, color: "#1F2937", lineHeight: 1.4 }}>
+                                          {phrase.label || phrase.phrase_text}
+                                        </Typography>
+                                      </Box>
+                                    ))
+                                  )}
+                                </Box>
+                              </Collapse>
+                            </Box>
+                          );
+                        })
                       )}
                     </Box>
                   </>
