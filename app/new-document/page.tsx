@@ -11,6 +11,7 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  TextField,
   Divider,
   Collapse,
   CircularProgress,
@@ -21,7 +22,7 @@ import {
   DialogContent,
   DialogActions,
 } from "@mui/material";
-import { FileDown, Save, Check, ChevronDown } from "lucide-react";
+import { FileDown, Save, Check, ChevronDown, Plus } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { DynamicField, TemplateFieldDef, FieldValue } from "@/components/dynamic-field";
@@ -102,6 +103,11 @@ function DocumentBuilderContent() {
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
   // Last known cursor position in a phrase-bank textarea — used for targeted insertion
   const [cursorPos, setCursorPos] = useState<{ key: string; start: number; end: number } | null>(null);
+
+  // Add Phrase dialog
+  const [addPhraseOpen, setAddPhraseOpen] = useState(false);
+  const [addPhraseForm, setAddPhraseForm] = useState({ category_id: "", label: "", phrase_text: "" });
+  const [addPhraseSaving, setAddPhraseSaving] = useState(false);
 
   // ── Data fetching ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -260,6 +266,34 @@ function DocumentBuilderContent() {
     }
   }
 
+  // ── Add phrase (staff user) ────────────────────────────────────────────────
+  async function handleAddPhrase() {
+    const { category_id, label, phrase_text } = addPhraseForm;
+    if (!category_id || !label.trim() || !phrase_text.trim()) return;
+    setAddPhraseSaving(true);
+    try {
+      const res = await fetch("/api/phrases", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ category_id, label: label.trim(), phrase_text: phrase_text.trim() }),
+      });
+      if (!res.ok) throw new Error("Failed to save phrase");
+      // Refresh phrase list
+      const refreshed = await fetch("/api/phrases");
+      if (refreshed.ok) {
+        const json = await refreshed.json();
+        if (json.data) setPhraseCategories(json.data);
+      }
+      setAddPhraseOpen(false);
+      setAddPhraseForm({ category_id: "", label: "", phrase_text: "" });
+      showSnackbar("Phrase added.", "success");
+    } catch {
+      showSnackbar("Failed to add phrase. Please try again.", "error");
+    } finally {
+      setAddPhraseSaving(false);
+    }
+  }
+
   // ── Snackbar helper ────────────────────────────────────────────────────────
   function showSnackbar(message: string, severity: "success" | "error") {
     setSnackbarMessage(message);
@@ -388,13 +422,26 @@ function DocumentBuilderContent() {
           <Grid item xs={12} md={4}>
             <Paper elevation={0} sx={{ border: "1px solid #E5E7EB", borderRadius: 2, overflow: "hidden" }}>
               {/* Panel header */}
-              <Box sx={{ px: 2, py: 1.5, borderBottom: "1px solid #E5E7EB", bgcolor: "#F9FAFB" }}>
-                <Typography variant="subtitle2" sx={{ fontWeight: 700, color: "#111827" }}>
-                  Phrase Bank
-                </Typography>
-                <Typography variant="caption" sx={{ color: "#6B7280" }}>
-                  Click a phrase to insert it into the selected field
-                </Typography>
+              <Box sx={{ px: 2, py: 1.5, borderBottom: "1px solid #E5E7EB", bgcolor: "#F9FAFB", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <Box>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 700, color: "#111827" }}>
+                    Phrase Bank
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: "#6B7280" }}>
+                    Click a phrase to insert it into the selected field
+                  </Typography>
+                </Box>
+                <Button
+                  size="small"
+                  startIcon={<Plus size={14} />}
+                  onClick={() => {
+                    setAddPhraseForm({ category_id: phraseCategories[0]?.id ?? "", label: "", phrase_text: "" });
+                    setAddPhraseOpen(true);
+                  }}
+                  sx={{ color: "#395B45", fontWeight: 600, textTransform: "none", flexShrink: 0, ml: 1 }}
+                >
+                  Add
+                </Button>
               </Box>
 
               <Box sx={{ p: 2 }}>
@@ -503,9 +550,6 @@ function DocumentBuilderContent() {
                                         key={phrase.id}
                                         onClick={() => setPreviewPhrase(phrase)}
                                         sx={{
-                                          display: "flex",
-                                          alignItems: "center",
-                                          gap: 1,
                                           px: 1.25,
                                           py: 1,
                                           mb: 0.5,
@@ -520,17 +564,24 @@ function DocumentBuilderContent() {
                                           "&:last-child": { mb: 0 },
                                         }}
                                       >
-                                        <Box
+                                        <Typography
+                                          variant="body2"
+                                          sx={{ fontWeight: 700, fontSize: 13, color: "#111827", lineHeight: 1.4, mb: 0.25 }}
+                                        >
+                                          {phrase.label || "—"}
+                                        </Typography>
+                                        <Typography
+                                          variant="caption"
                                           sx={{
-                                            width: 5,
-                                            height: 5,
-                                            borderRadius: "50%",
-                                            bgcolor: "#395B45",
-                                            flexShrink: 0,
+                                            color: "#6B7280",
+                                            display: "-webkit-box",
+                                            WebkitLineClamp: 2,
+                                            WebkitBoxOrient: "vertical",
+                                            overflow: "hidden",
+                                            lineHeight: 1.4,
                                           }}
-                                        />
-                                        <Typography variant="body2" sx={{ fontSize: 13, color: "#1F2937", lineHeight: 1.4 }}>
-                                          {phrase.label || phrase.phrase_text}
+                                        >
+                                          {phrase.phrase_text}
                                         </Typography>
                                       </Box>
                                     ))
@@ -598,6 +649,58 @@ function DocumentBuilderContent() {
           {docxStatus === "generating" ? "Generating…" : docxStatus === "done" ? "Downloaded" : "Generate DOCX"}
         </Button>
       </Paper>
+
+      {/* Add Phrase dialog */}
+      <Dialog open={addPhraseOpen} onClose={() => setAddPhraseOpen(false)} fullWidth maxWidth="sm" PaperProps={{ sx: { borderRadius: 3 } }}>
+        <DialogTitle sx={{ fontWeight: 700, pb: 1 }}>Add Phrase</DialogTitle>
+        <DialogContent sx={{ display: "flex", flexDirection: "column", gap: 2.5, pt: "16px !important" }}>
+          <FormControl fullWidth size="small">
+            <InputLabel>Category</InputLabel>
+            <Select
+              value={addPhraseForm.category_id}
+              label="Category"
+              onChange={(e) => setAddPhraseForm((p) => ({ ...p, category_id: e.target.value }))}
+            >
+              {phraseCategories.map((c) => (
+                <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <TextField
+            label="Label"
+            fullWidth
+            size="small"
+            value={addPhraseForm.label}
+            onChange={(e) => setAddPhraseForm((p) => ({ ...p, label: e.target.value }))}
+            placeholder="e.g. No Comment Advice"
+            required
+          />
+          <TextField
+            label="Phrase Text"
+            fullWidth
+            multiline
+            rows={5}
+            size="small"
+            value={addPhraseForm.phrase_text}
+            onChange={(e) => setAddPhraseForm((p) => ({ ...p, phrase_text: e.target.value }))}
+            placeholder="Enter the full legal phrase here…"
+            required
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2, gap: 1 }}>
+          <Button onClick={() => setAddPhraseOpen(false)} sx={{ color: "#6B7280", textTransform: "none" }}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            disabled={!addPhraseForm.category_id || !addPhraseForm.label.trim() || !addPhraseForm.phrase_text.trim() || addPhraseSaving}
+            onClick={handleAddPhrase}
+            sx={{ bgcolor: "#395B45", "&:hover": { bgcolor: "#2D4A38" }, textTransform: "none", fontWeight: 600 }}
+          >
+            {addPhraseSaving ? "Saving…" : "Save Phrase"}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Phrase preview dialog */}
       <Dialog
