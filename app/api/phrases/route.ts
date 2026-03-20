@@ -52,10 +52,10 @@ export async function POST(req: Request) {
     if (!firmId) return badRequest("Could not determine your firm");
 
     const body = await req.json();
-    const { id, category_id, phrase_text } = body;
+    const { id, category_id, phrase_text, label } = body;
 
-    if (!category_id || !phrase_text) {
-      return badRequest("Missing required fields: category_id, phrase_text");
+    if (!category_id || !phrase_text || !label) {
+      return badRequest("Missing required fields: category_id, label, phrase_text");
     }
 
     // Verify category belongs to user's firm
@@ -69,20 +69,18 @@ export async function POST(req: Request) {
     if (!category) return badRequest("Invalid category or unauthorized access");
 
     if (id) {
-      // Update
       const { data, error } = await supabase
         .from("phrases")
-        .update({ category_id, phrase_text, updated_at: new Date().toISOString() })
+        .update({ category_id, label, phrase_text, updated_at: new Date().toISOString() })
         .eq("id", id)
         .select()
         .single();
       if (error) return err(error.message);
       return ok(data);
     } else {
-      // Create
       const { data, error } = await supabase
         .from("phrases")
-        .insert({ category_id, phrase_text, created_by: user.id })
+        .insert({ category_id, label, phrase_text, created_by: user.id })
         .select()
         .single();
       if (error) return err(error.message);
