@@ -1,500 +1,408 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import {
   Box,
   Typography,
   Paper,
-  Button,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Chip,
+  List,
+  ListItemButton,
   IconButton,
+  Button,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
   TextField,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  Grid,
-  CircularProgress,
-  Alert,
+  Skeleton,
+  Card,
 } from "@mui/material";
-import { Plus, Edit2, Trash2, X } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
+import {
+  BookOpen,
+  Plus,
+  Trash2,
+  Edit2,
+  FolderPlus,
+  StickyNote,
+  AlertCircle,
+} from "lucide-react";
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-interface DbPhrase {
+interface Phrase {
   id: string;
-  title: string;
-  content: string;
-  offence_tags: string[];
-  stage: string | null;
-  category: string | null;
-  trigger_keywords: string[];
+  phrase_text: string;
+  created_at: string;
 }
 
-interface PhraseFormData {
-  title: string;
-  content: string;
-  offence_tags: string[];
-  stage: string;
-  category: string;
-  trigger_keywords: string[];
+interface Category {
+  id: string;
+  name: string;
+  phrases: Phrase[];
 }
-
-const defaultFormData: PhraseFormData = {
-  title: "",
-  content: "",
-  offence_tags: [],
-  stage: "",
-  category: "",
-  trigger_keywords: [],
-};
-
-const stageOptions = ["Pre-sentence", "Sentencing", "Appeal", "Trial", "Bail"];
-const categoryOptions = [
-  "Character",
-  "Mitigation",
-  "Personal Circumstances",
-  "Medical",
-  "Employment",
-  "Family",
-];
-const tagOptions = [
-  "General",
-  "Mitigation",
-  "Mental Health",
-  "Family",
-  "Employment",
-  "Drug Offence",
-  "Violence",
-];
-
-// ── Component ─────────────────────────────────────────────────────────────────
 
 export default function PhraseBankPage() {
-  const [phrases, setPhrases] = useState<DbPhrase[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
-  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+
+  const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
+  const [phraseDialogOpen, setPhraseDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+
+  const [editCategory, setEditCategory] = useState<{ id?: string; name: string }>({ name: "" });
+  const [editPhrase, setEditPhrase] = useState<{ id?: string; category_id: string; phrase_text: string }>({ category_id: "", phrase_text: "" });
+  const [deleteTarget, setDeleteTarget] = useState<{ type: "category" | "phrase"; id: string } | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingPhrase, setEditingPhrase] = useState<DbPhrase | null>(null);
-  const [formData, setFormData] = useState<PhraseFormData>(defaultFormData);
-  const [formError, setFormError] = useState<string | null>(null);
+  useEffect(() => { fetchData(); }, []);
 
-  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-  const [phraseToDelete, setPhraseToDelete] = useState<string | null>(null);
-
-  // ── Data loading ────────────────────────────────────────────────────────────
-
-  const loadPhrases = useCallback(async () => {
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from("phrase_bank_entries")
-      .select("id, title, content, offence_tags, stage, category, trigger_keywords")
-      .order("title");
-
-    if (error) {
-      setFetchError("Failed to load phrases. Please refresh.");
-    } else {
-      setPhrases((data ?? []) as DbPhrase[]);
-      setFetchError(null);
-    }
-    setLoading(false);
-  }, []);
-
-  useEffect(() => {
-    loadPhrases();
-  }, [loadPhrases]);
-
-  // ── Dialog handlers ─────────────────────────────────────────────────────────
-
-  const handleOpenDialog = (phrase?: DbPhrase) => {
-    if (phrase) {
-      setEditingPhrase(phrase);
-      setFormData({
-        title: phrase.title,
-        content: phrase.content,
-        offence_tags: phrase.offence_tags ?? [],
-        stage: phrase.stage ?? "",
-        category: phrase.category ?? "",
-        trigger_keywords: phrase.trigger_keywords ?? [],
-      });
-    } else {
-      setEditingPhrase(null);
-      setFormData(defaultFormData);
-    }
-    setFormError(null);
-    setDialogOpen(true);
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/phrases");
+      const json = await res.json();
+      if (res.ok && json.data) {
+        setCategories(json.data);
+        if (json.data.length > 0 && !selectedCategoryId) {
+          setSelectedCategoryId(json.data[0].id);
+        }
+      }
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); }
   };
 
-  const handleCloseDialog = () => {
-    setDialogOpen(false);
-    setEditingPhrase(null);
-    setFormData(defaultFormData);
-    setFormError(null);
-  };
+  const activeCategory = categories.find((c) => c.id === selectedCategoryId);
 
-  const handleSubmit = async () => {
-    if (!formData.title.trim()) {
-      setFormError("Title is required.");
-      return;
-    }
-    if (!formData.content.trim()) {
-      setFormError("Content is required.");
-      return;
-    }
-
+  const handleSaveCategory = async () => {
+    if (!editCategory.name.trim()) return;
     setSaving(true);
-    setFormError(null);
-
-    const supabase = createClient();
-    const payload = {
-      title: formData.title.trim(),
-      content: formData.content.trim(),
-      offence_tags: formData.offence_tags,
-      stage: formData.stage || null,
-      category: formData.category || null,
-      trigger_keywords: formData.trigger_keywords,
-    };
-
-    const { error } = editingPhrase
-      ? await supabase
-          .from("phrase_bank_entries")
-          .update(payload)
-          .eq("id", editingPhrase.id)
-      : await supabase.from("phrase_bank_entries").insert(payload);
-
-    if (error) {
-      setFormError("Failed to save phrase. Please try again.");
-      setSaving(false);
-      return;
-    }
-
-    await loadPhrases();
-    setSaving(false);
-    handleCloseDialog();
+    try {
+      const res = await fetch("/api/phrase-categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(editCategory),
+      });
+      if (res.ok) { await fetchData(); setCategoryDialogOpen(false); }
+    } catch (e) { console.error(e); }
+    finally { setSaving(false); }
   };
 
-  // ── Delete handlers ─────────────────────────────────────────────────────────
-
-  const handleDeleteClick = (id: string) => {
-    setPhraseToDelete(id);
-    setDeleteConfirmOpen(true);
+  const handleSavePhrase = async () => {
+    if (!editPhrase.phrase_text.trim()) return;
+    setSaving(true);
+    try {
+      const res = await fetch("/api/phrases", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(editPhrase),
+      });
+      if (res.ok) { await fetchData(); setPhraseDialogOpen(false); }
+    } catch (e) { console.error(e); }
+    finally { setSaving(false); }
   };
 
-  const handleConfirmDelete = async () => {
-    if (!phraseToDelete) return;
-    const supabase = createClient();
-    await supabase.from("phrase_bank_entries").delete().eq("id", phraseToDelete);
-    await loadPhrases();
-    setDeleteConfirmOpen(false);
-    setPhraseToDelete(null);
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setSaving(true);
+    try {
+      const endpoint = deleteTarget.type === "category"
+        ? `/api/phrase-categories/${deleteTarget.id}`
+        : `/api/phrases/${deleteTarget.id}`;
+      const res = await fetch(endpoint, { method: "DELETE" });
+      if (res.ok) {
+        if (deleteTarget.type === "category" && selectedCategoryId === deleteTarget.id) {
+          setSelectedCategoryId(null);
+        }
+        await fetchData();
+        setDeleteDialogOpen(false);
+      }
+    } catch (e) { console.error(e); }
+    finally { setSaving(false); }
   };
-
-  // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
     <Box>
-      {/* Page Header */}
-      <Box
-        sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 4 }}
-      >
+      {/* Page header */}
+      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 4 }}>
         <Box>
-          <Typography variant="h4" sx={{ fontWeight: 600, mb: 1, color: "#1A1A1A" }}>
-            Phrase Bank
-          </Typography>
-          <Typography variant="body1" sx={{ color: "#666666" }}>
-            Manage your library of reusable legal phrases.
+          <Typography variant="h5" sx={{ fontWeight: 700, color: "#111827" }}>Phrase Bank</Typography>
+          <Typography variant="body2" sx={{ color: "#6B7280", mt: 0.5 }}>
+            Access and manage your firm's library of reusable legal phrases.
           </Typography>
         </Box>
         <Button
           variant="contained"
-          color="primary"
-          startIcon={<Plus size={18} />}
-          onClick={() => handleOpenDialog()}
+          startIcon={<FolderPlus size={16} />}
+          onClick={() => { setEditCategory({ name: "" }); setCategoryDialogOpen(true); }}
+          sx={{ bgcolor: "#395B45", "&:hover": { bgcolor: "#2D4A38" }, textTransform: "none", fontWeight: 600, borderRadius: 2 }}
         >
-          Add Phrase
+          Add Category
         </Button>
       </Box>
 
-      {fetchError && (
-        <Alert severity="error" sx={{ mb: 3 }}>
-          {fetchError}
-        </Alert>
-      )}
+      {/* Two-column layout */}
+      <Box sx={{ display: "flex", gap: 3, alignItems: "flex-start" }}>
 
-      {/* Phrases Table */}
-      <Paper sx={{ overflow: "hidden" }}>
-        {loading ? (
-          <Box sx={{ display: "flex", justifyContent: "center", py: 6 }}>
-            <CircularProgress />
-          </Box>
-        ) : (
-          <TableContainer>
-            <Table>
-              <TableHead>
-                <TableRow sx={{ backgroundColor: "#F9F9F9" }}>
-                  <TableCell sx={{ fontWeight: 600, color: "#666666" }}>Title</TableCell>
-                  <TableCell sx={{ fontWeight: 600, color: "#666666" }}>Offence Tags</TableCell>
-                  <TableCell sx={{ fontWeight: 600, color: "#666666" }}>Stage</TableCell>
-                  <TableCell sx={{ fontWeight: 600, color: "#666666" }}>Category</TableCell>
-                  <TableCell sx={{ fontWeight: 600, color: "#666666" }}>
-                    Trigger Keywords
-                  </TableCell>
-                  <TableCell sx={{ fontWeight: 600, color: "#666666" }} align="right">
-                    Actions
-                  </TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {phrases.length === 0 ? (
-                  <TableRow>
-                    <TableCell
-                      colSpan={6}
-                      sx={{ textAlign: "center", py: 6, color: "#666666" }}
-                    >
-                      No phrases yet. Click &quot;Add Phrase&quot; to create one.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  phrases.map((phrase) => (
-                    <TableRow
-                      key={phrase.id}
-                      sx={{ "&:hover": { backgroundColor: "#FAFAFA" } }}
-                    >
-                      <TableCell sx={{ fontWeight: 500 }}>{phrase.title}</TableCell>
-                      <TableCell>
-                        <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
-                          {(phrase.offence_tags ?? []).map((tag) => (
-                            <Chip
-                              key={tag}
-                              label={tag}
-                              size="small"
-                              sx={{
-                                backgroundColor: "rgba(57, 91, 69, 0.08)",
-                                color: "#395B45",
-                                fontSize: 11,
-                              }}
-                            />
-                          ))}
-                        </Box>
-                      </TableCell>
-                      <TableCell>{phrase.stage ?? "—"}</TableCell>
-                      <TableCell>{phrase.category ?? "—"}</TableCell>
-                      <TableCell>
-                        <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
-                          {(phrase.trigger_keywords ?? []).slice(0, 2).map((keyword) => (
-                            <Chip
-                              key={keyword}
-                              label={keyword}
-                              size="small"
-                              variant="outlined"
-                              sx={{ fontSize: 11 }}
-                            />
-                          ))}
-                          {(phrase.trigger_keywords ?? []).length > 2 && (
-                            <Chip
-                              label={`+${phrase.trigger_keywords.length - 2}`}
-                              size="small"
-                              sx={{ fontSize: 11 }}
-                            />
-                          )}
-                        </Box>
-                      </TableCell>
-                      <TableCell align="right">
-                        <IconButton
-                          size="small"
-                          onClick={() => handleOpenDialog(phrase)}
-                          sx={{ color: "#666666" }}
-                        >
-                          <Edit2 size={16} />
-                        </IconButton>
-                        <IconButton
-                          size="small"
-                          onClick={() => handleDeleteClick(phrase.id)}
-                          sx={{ color: "#D32F2F" }}
-                        >
-                          <Trash2 size={16} />
-                        </IconButton>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        )}
-      </Paper>
-
-      {/* Add/Edit Dialog */}
-      <Dialog
-        open={dialogOpen}
-        onClose={handleCloseDialog}
-        maxWidth="md"
-        fullWidth
-        PaperProps={{ sx: { maxHeight: "90vh" } }}
-      >
-        <DialogTitle
-          sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", pb: 2 }}
-        >
-          <Typography variant="h6" sx={{ fontWeight: 600 }}>
-            {editingPhrase ? "Edit Phrase" : "Add New Phrase"}
-          </Typography>
-          <IconButton onClick={handleCloseDialog} size="small">
-            <X size={20} />
-          </IconButton>
-        </DialogTitle>
-        <DialogContent dividers sx={{ overflow: "auto" }}>
-          {formError && (
-            <Alert severity="error" sx={{ mb: 2 }}>
-              {formError}
-            </Alert>
-          )}
-          <Grid container spacing={3} sx={{ pt: 1, minWidth: 0 }}>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Title"
-                value={formData.title}
-                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Content"
-                multiline
-                rows={4}
-                value={formData.content}
-                onChange={(e) => setFormData({ ...formData, content: e.target.value })}
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <FormControl fullWidth>
-                <InputLabel>Offence Tags</InputLabel>
-                <Select
-                  multiple
-                  value={formData.offence_tags}
-                  label="Offence Tags"
-                  onChange={(e) =>
-                    setFormData({ ...formData, offence_tags: e.target.value as string[] })
-                  }
-                  MenuProps={{ PaperProps: { sx: { maxHeight: 300 } } }}
-                  renderValue={(selected) => (
-                    <Box
-                      sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", maxHeight: 60, overflow: "hidden" }}
-                    >
-                      {selected.map((tag) => (
-                        <Chip key={tag} label={tag} size="small" sx={{ height: 24 }} />
-                      ))}
+        {/* ── Categories column ── */}
+        <Box sx={{ width: 260, flexShrink: 0 }}>
+          <Paper elevation={0} sx={{ border: "1px solid #E5E7EB", borderRadius: 3, overflow: "hidden" }}>
+            <Box sx={{ px: 2, py: 1.5, bgcolor: "#F9FAFB", borderBottom: "1px solid #E5E7EB" }}>
+              <Typography variant="caption" sx={{ fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: 0.5 }}>
+                Categories
+              </Typography>
+            </Box>
+            <List sx={{ p: 0 }}>
+              {loading ? (
+                [1, 2, 3].map((i) => (
+                  <Box key={i} sx={{ px: 2, py: 1.5 }}>
+                    <Skeleton height={20} width="80%" />
+                  </Box>
+                ))
+              ) : categories.length === 0 ? (
+                <Box sx={{ p: 4, textAlign: "center" }}>
+                  <Typography variant="body2" sx={{ color: "#9CA3AF" }}>No categories yet</Typography>
+                </Box>
+              ) : (
+                categories.map((cat) => (
+                  <ListItemButton
+                    key={cat.id}
+                    selected={selectedCategoryId === cat.id}
+                    onClick={() => setSelectedCategoryId(cat.id)}
+                    sx={{
+                      py: 1.25,
+                      px: 2,
+                      borderLeft: "3px solid",
+                      borderColor: selectedCategoryId === cat.id ? "#395B45" : "transparent",
+                      bgcolor: selectedCategoryId === cat.id ? "rgba(57,91,69,0.05)" : "inherit",
+                      "&:hover .cat-actions": { opacity: 1 },
+                    }}
+                  >
+                    <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+                      <Typography variant="body2" sx={{ fontWeight: selectedCategoryId === cat.id ? 700 : 500, color: "#111827" }}>
+                        {cat.name}
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: "#9CA3AF" }}>
+                        {cat.phrases.length} phrase{cat.phrases.length !== 1 ? "s" : ""}
+                      </Typography>
                     </Box>
+                    <Box className="cat-actions" sx={{ display: "flex", opacity: 0, transition: "opacity 0.15s" }} onClick={(e) => e.stopPropagation()}>
+                      <IconButton
+                        size="small"
+                        onClick={() => { setEditCategory({ id: cat.id, name: cat.name }); setCategoryDialogOpen(true); }}
+                        sx={{ color: "#6B7280", p: 0.5 }}
+                      >
+                        <Edit2 size={13} />
+                      </IconButton>
+                      <IconButton
+                        size="small"
+                        onClick={() => { setDeleteTarget({ type: "category", id: cat.id }); setDeleteDialogOpen(true); }}
+                        sx={{ color: "#EF4444", p: 0.5 }}
+                      >
+                        <Trash2 size={13} />
+                      </IconButton>
+                    </Box>
+                  </ListItemButton>
+                ))
+              )}
+            </List>
+          </Paper>
+        </Box>
+
+        {/* ── Phrases column ── */}
+        <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+          <Paper elevation={0} sx={{ border: "1px solid #E5E7EB", borderRadius: 3, minHeight: 400 }}>
+            {!selectedCategoryId ? (
+              <Box sx={{ 
+                py: 16, 
+                px: 3,
+                display: "flex", 
+                flexDirection: "column", 
+                alignItems: "center", 
+                justifyContent: "center",
+                textAlign: "center" 
+              }}>
+                <Box sx={{ bgcolor: "#F3F4F6", p: 2, borderRadius: "50%", mb: 2, display: "flex" }}>
+                  <BookOpen size={40} color="#9CA3AF" />
+                </Box>
+                <Typography variant="subtitle1" sx={{ fontWeight: 600, color: "#4B5563" }}>
+                  No Category Selected
+                </Typography>
+                <Typography variant="body2" sx={{ color: "#9CA3AF", maxWidth: 240 }}>
+                  Select a category from the left to view and manage phrases
+                </Typography>
+              </Box>
+            ) : (
+              <>
+                <Box sx={{ px: 3, py: 2, borderBottom: "1px solid #E5E7EB", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <Box>
+                    <Typography variant="subtitle1" sx={{ fontWeight: 700, color: "#111827" }}>
+                      {activeCategory?.name}
+                    </Typography>
+                    <Typography variant="caption" sx={{ color: "#6B7280" }}>
+                      Phrases available for document automation
+                    </Typography>
+                  </Box>
+                  <Button
+                    variant="outlined"
+                    startIcon={<Plus size={14} />}
+                    size="small"
+                    onClick={() => {
+                      setEditPhrase({ category_id: selectedCategoryId, phrase_text: "" });
+                      setPhraseDialogOpen(true);
+                    }}
+                    sx={{ color: "#395B45", borderColor: "#395B45", textTransform: "none", fontWeight: 600, borderRadius: 2 }}
+                  >
+                    Add Phrase
+                  </Button>
+                </Box>
+
+                <Box sx={{ p: 2 }}>
+                  {activeCategory?.phrases.length === 0 ? (
+                    <Box sx={{ 
+                      py: 12, 
+                      display: "flex", 
+                      flexDirection: "column", 
+                      alignItems: "center", 
+                      justifyContent: "center",
+                      textAlign: "center" 
+                    }}>
+                      <Box sx={{ bgcolor: "#F9FAFB", p: 2, borderRadius: "50%", mb: 2, display: "flex" }}>
+                        <StickyNote size={32} color="#D1D5DB" />
+                      </Box>
+                      <Typography variant="body2" sx={{ color: "#9CA3AF" }}>
+                        No phrases in this category yet
+                      </Typography>
+                    </Box>
+                  ) : (
+                    activeCategory?.phrases.map((phrase) => (
+                      <Card
+                        key={phrase.id}
+                        elevation={0}
+                        sx={{ mb: 2, border: "1px solid #E5E7EB", borderRadius: 2, "&:last-child": { mb: 0 } }}
+                      >
+                        <Box sx={{ p: 2, display: "flex", gap: 2, alignItems: "center" }}>
+                          <Typography
+                            variant="body2"
+                            sx={{ flexGrow: 1, whiteSpace: "pre-wrap", color: "#374151", lineHeight: 1.6 }}
+                          >
+                            {phrase.phrase_text}
+                          </Typography>
+                          <Box sx={{ display: "flex", flexShrink: 0, gap: 0.5 }}>
+                            <IconButton
+                              size="small"
+                              onClick={() => { setEditPhrase({ id: phrase.id, category_id: selectedCategoryId, phrase_text: phrase.phrase_text }); setPhraseDialogOpen(true); }}
+                              sx={{ color: "#6B7280", "&:hover": { bgcolor: "#F3F4F6" } }}
+                            >
+                              <Edit2 size={14} />
+                            </IconButton>
+                            <IconButton
+                              size="small"
+                              onClick={() => { setDeleteTarget({ type: "phrase", id: phrase.id }); setDeleteDialogOpen(true); }}
+                              sx={{ color: "#EF4444", "&:hover": { bgcolor: "#FEF2F2" } }}
+                            >
+                              <Trash2 size={14} />
+                            </IconButton>
+                          </Box>
+                        </Box>
+                      </Card>
+                    ))
                   )}
-                >
-                  {tagOptions.map((tag) => (
-                    <MenuItem key={tag} value={tag}>
-                      {tag}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <FormControl fullWidth>
-                <InputLabel>Stage</InputLabel>
-                <Select
-                  value={formData.stage}
-                  label="Stage"
-                  onChange={(e) => setFormData({ ...formData, stage: e.target.value })}
-                >
-                  <MenuItem value="">
-                    <em>None</em>
-                  </MenuItem>
-                  {stageOptions.map((stage) => (
-                    <MenuItem key={stage} value={stage}>
-                      {stage}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <FormControl fullWidth>
-                <InputLabel>Category</InputLabel>
-                <Select
-                  value={formData.category}
-                  label="Category"
-                  onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                >
-                  <MenuItem value="">
-                    <em>None</em>
-                  </MenuItem>
-                  {categoryOptions.map((category) => (
-                    <MenuItem key={category} value={category}>
-                      {category}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Trigger Keywords (comma separated)"
-                value={formData.trigger_keywords.join(", ")}
-                onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    trigger_keywords: e.target.value
-                      .split(",")
-                      .map((k) => k.trim())
-                      .filter(Boolean),
-                  })
-                }
-              />
-            </Grid>
-          </Grid>
+                </Box>
+              </>
+            )}
+          </Paper>
+        </Box>
+      </Box>
+
+      {/* Category dialog */}
+      <Dialog open={categoryDialogOpen} onClose={() => setCategoryDialogOpen(false)} fullWidth maxWidth="xs" PaperProps={{ sx: { borderRadius: 3 } }}>
+        <DialogTitle sx={{ fontWeight: 700 }}>
+          {editCategory.id ? "Edit Category" : "New Category"}
+        </DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            margin="dense"
+            label="Category Name"
+            fullWidth
+            variant="outlined"
+            value={editCategory.name}
+            onChange={(e) => setEditCategory({ ...editCategory, name: e.target.value })}
+            placeholder="e.g. Police Interview Notes"
+            sx={{ mt: 1 }}
+          />
         </DialogContent>
-        <DialogActions sx={{ p: 2 }}>
-          <Button onClick={handleCloseDialog} variant="outlined" disabled={saving}>
-            Cancel
-          </Button>
+        <DialogActions sx={{ px: 3, py: 2, gap: 1 }}>
+          <Button onClick={() => setCategoryDialogOpen(false)} sx={{ color: "#6B7280", textTransform: "none" }}>Cancel</Button>
           <Button
-            onClick={handleSubmit}
             variant="contained"
-            color="primary"
-            disabled={saving}
-            startIcon={saving ? <CircularProgress size={14} color="inherit" /> : undefined}
+            disabled={!editCategory.name.trim() || saving}
+            onClick={handleSaveCategory}
+            sx={{ bgcolor: "#395B45", "&:hover": { bgcolor: "#2D4A38" }, textTransform: "none", fontWeight: 600 }}
           >
-            {saving ? "Saving…" : editingPhrase ? "Update Phrase" : "Add Phrase"}
+            {saving ? "Saving…" : "Save Category"}
           </Button>
         </DialogActions>
       </Dialog>
 
-      {/* Delete Confirmation Dialog */}
-      <Dialog open={deleteConfirmOpen} onClose={() => setDeleteConfirmOpen(false)}>
-        <DialogTitle>Delete Phrase?</DialogTitle>
+      {/* Phrase dialog */}
+      <Dialog open={phraseDialogOpen} onClose={() => setPhraseDialogOpen(false)} fullWidth maxWidth="sm" PaperProps={{ sx: { borderRadius: 3 } }}>
+        <DialogTitle sx={{ fontWeight: 700 }}>
+          {editPhrase.id ? "Edit Phrase" : "New Phrase"}
+        </DialogTitle>
         <DialogContent>
-          <Typography>
-            Are you sure you want to delete this phrase? This action cannot be undone.
+          <Typography variant="caption" sx={{ color: "#6B7280", display: "block", mb: 1 }}>
+            Phrases can be inserted directly into documents as they are being filled.
+          </Typography>
+          <TextField
+            autoFocus
+            margin="dense"
+            label="Phrase Text"
+            fullWidth
+            multiline
+            rows={5}
+            variant="outlined"
+            value={editPhrase.phrase_text}
+            onChange={(e) => setEditPhrase({ ...editPhrase, phrase_text: e.target.value })}
+            placeholder="Enter the phrase text…"
+            sx={{ mt: 1 }}
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2, gap: 1 }}>
+          <Button onClick={() => setPhraseDialogOpen(false)} sx={{ color: "#6B7280", textTransform: "none" }}>Cancel</Button>
+          <Button
+            variant="contained"
+            disabled={!editPhrase.phrase_text.trim() || saving}
+            onClick={handleSavePhrase}
+            sx={{ bgcolor: "#395B45", "&:hover": { bgcolor: "#2D4A38" }, textTransform: "none", fontWeight: 600 }}
+          >
+            {saving ? "Saving…" : "Save Phrase"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Delete confirmation */}
+      <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)} PaperProps={{ sx: { borderRadius: 3 } }}>
+        <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1.5, pb: 1 }}>
+          <Box sx={{ bgcolor: "#FEF2F2", p: 1, borderRadius: 2, display: "flex" }}>
+            <AlertCircle size={18} color="#EF4444" />
+          </Box>
+          <Typography variant="h6" component="span" sx={{ fontWeight: 700 }}>Confirm Delete</Typography>
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ color: "#374151" }}>
+            Are you sure you want to delete this {deleteTarget?.type}? This cannot be undone.
+            {deleteTarget?.type === "category" && " All phrases in this category will also be deleted."}
           </Typography>
         </DialogContent>
-        <DialogActions sx={{ p: 2 }}>
-          <Button onClick={() => setDeleteConfirmOpen(false)} variant="outlined">
-            Cancel
-          </Button>
-          <Button onClick={handleConfirmDelete} variant="contained" color="error">
-            Delete
+        <DialogActions sx={{ px: 3, py: 2, gap: 1 }}>
+          <Button onClick={() => setDeleteDialogOpen(false)} sx={{ color: "#6B7280", textTransform: "none" }}>Cancel</Button>
+          <Button
+            variant="contained"
+            disabled={saving}
+            onClick={handleDelete}
+            sx={{ bgcolor: "#EF4444", "&:hover": { bgcolor: "#DC2626" }, textTransform: "none", fontWeight: 600 }}
+          >
+            {saving ? "Deleting…" : "Delete"}
           </Button>
         </DialogActions>
       </Dialog>

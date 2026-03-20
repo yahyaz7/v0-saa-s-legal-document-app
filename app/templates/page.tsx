@@ -21,7 +21,6 @@ interface Template {
   id: string;
   name: string;
   description: string;
-  category: string;
 }
 
 export default function TemplatesPage() {
@@ -34,7 +33,7 @@ export default function TemplatesPage() {
     console.log("[v0] Fetching templates from Supabase...");
     supabase
       .from("templates")
-      .select("id, name, description, category")
+      .select("id, name, description")
       .order("name")
       .then(({ data, error }: { data: any, error: any }) => {
         console.log("[v0] Templates response:", { data, error });
@@ -115,20 +114,10 @@ export default function TemplatesPage() {
                     >
                       <FileText size={20} color="#395B45" />
                     </Box>
-                    <Box>
-                      <Typography variant="h6" sx={{ fontWeight: 600, fontSize: 16, mb: 0.5 }}>
+                    <Box sx={{ minWidth: 0, flex: 1 }}>
+                      <Typography variant="h6" sx={{ fontWeight: 600, fontSize: 16, mb: 0.5, wordBreak: "break-word" }}>
                         {template.name}
                       </Typography>
-                      <Chip
-                        label={template.category}
-                        size="small"
-                        sx={{
-                          backgroundColor: "#F5F5F5",
-                          color: "#666666",
-                          fontSize: 11,
-                          height: 22,
-                        }}
-                      />
                     </Box>
                   </Box>
                   <Typography variant="body2" sx={{ color: "#666666", lineHeight: 1.6 }}>

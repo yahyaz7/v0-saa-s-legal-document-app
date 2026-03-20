@@ -6,85 +6,56 @@ import {
   Typography,
   Paper,
   Grid,
-  Tabs,
-  Tab,
-  Card,
-  CardContent,
   Button,
-  Chip,
-  Switch,
   FormControl,
-  FormControlLabel,
   InputLabel,
   Select,
   MenuItem,
   Divider,
+  Collapse,
   CircularProgress,
   Alert,
-  TextField,
   Snackbar,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from "@mui/material";
-import { Plus, FileDown, Save, Sparkles, Check } from "lucide-react";
-import { ExtractedField } from "@/lib/app-context";
+import { FileDown, Save, Check, ChevronDown } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { DynamicField, TemplateFieldDef, FieldValue } from "@/components/dynamic-field";
 import { saveDraft, loadDraft, DraftFormData } from "@/lib/drafts";
-import { generateMagistratesNote, buildFileName } from "@/lib/generate-docx";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface PhraseEntry {
+interface PhraseItem {
   id: string;
-  field_key: string | null;
-  title: string;
-  content: string;
-  category: string | null;
-  offence_tags: string[];
+  label: string;
+  phrase_text: string;
 }
 
-/** Field keys that support phrase-bank insertion on this template. */
-const PHRASE_BANK_KEYS = ["instructions", "advice", "outcome", "next_action"];
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function TabPanel({
-  children,
-  value,
-  index,
-}: {
-  children: React.ReactNode;
-  value: number;
-  index: number;
-}) {
-  return (
-    <Box role="tabpanel" hidden={value !== index} sx={{ py: 2 }}>
-      {value === index && children}
-    </Box>
-  );
+interface PhraseCategory {
+  id: string;
+  name: string;
+  phrases: PhraseItem[];
 }
 
 type FormValues = Record<string, FieldValue>;
 
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
 function initFormValues(fields: TemplateFieldDef[]): FormValues {
   const values: FormValues = {};
   for (const field of fields) {
-    if (field.field_type === "repeater") {
-      const emptyRow = Object.fromEntries(
-        (field.repeater_fields ?? []).map((f) => [f.key, ""])
-      );
-      values[field.field_key] = [emptyRow];
-    } else {
-      values[field.field_key] = "";
-    }
+    values[field.field_key] = field.field_type === "checkbox" ? false : "";
   }
   return values;
 }
 
 /**
- * Overlay saved draft data onto a freshly-initialised FormValues object.
- * Only keys that exist in the current template are applied, so stale keys
- * from an old template version are silently ignored.
+ * Overlay saved draft values onto a fresh FormValues object.
+ * Stale keys from old template versions are silently ignored.
  */
 function applyDraftData(base: FormValues, draft: DraftFormData): FormValues {
   const result = { ...base };
@@ -96,15 +67,9 @@ function applyDraftData(base: FormValues, draft: DraftFormData): FormValues {
   return result;
 }
 
-/** Returns the Grid column span for a field based on its type and section. */
+/** Grid column span — textareas take full width, everything else half. */
 function fieldColSpan(field: TemplateFieldDef) {
-  if (field.field_type === "repeater" || field.field_type === "textarea") {
-    return { xs: 12 };
-  }
-  if (field.section === "Time Recording") {
-    return { xs: 12, sm: 6, md: 4 };
-  }
-  return { xs: 12, sm: 6 };
+  return field.field_type === "textarea" ? { xs: 12 } : { xs: 12, sm: 6 };
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -112,22 +77,18 @@ function fieldColSpan(field: TemplateFieldDef) {
 function DocumentBuilderContent() {
   const searchParams = useSearchParams();
   const templateId = searchParams.get("template");
-  const draftParam = searchParams.get("draft"); // present when opening a saved draft
+  const draftParam = searchParams.get("draft");
 
-  // Template metadata + fields from DB
   const [templateName, setTemplateName] = useState("");
+  const [formHeading, setFormHeading] = useState<string | null>(null);
   const [templateFields, setTemplateFields] = useState<TemplateFieldDef[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
-
-  // Auth
   const [userId, setUserId] = useState<string | null>(null);
 
-  // Form state
   const [formValues, setFormValues] = useState<FormValues>({});
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
-  // Draft state — seed from URL so re-saves UPDATE the same row
   const [draftId, setDraftId] = useState<string | null>(draftParam);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [docxStatus, setDocxStatus] = useState<"idle" | "generating" | "done" | "error">("idle");
@@ -135,203 +96,212 @@ function DocumentBuilderContent() {
   const [snackbarMessage, setSnackbarMessage] = useState("");
   const [snackbarSeverity, setSnackbarSeverity] = useState<"success" | "error">("success");
 
-  // Phrase bank state
-  const [dbPhrases, setDbPhrases] = useState<PhraseEntry[]>([]);
-  const [phraseTargetField, setPhraseTargetField] = useState<string>(PHRASE_BANK_KEYS[0]);
-
-  // Right-panel state (unchanged from original)
-  const [tabValue, setTabValue] = useState(0);
-  const [sourceText, setSourceText] = useState("");
-  const [extractedFields, setExtractedFields] = useState<ExtractedField[]>([]);
+  const [phraseCategories, setPhraseCategories] = useState<PhraseCategory[]>([]);
+  const [phraseTargetField, setPhraseTargetField] = useState<string>("");
+  const [previewPhrase, setPreviewPhrase] = useState<PhraseItem | null>(null);
+  const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
+  // Last known cursor position in a phrase-bank textarea — used for targeted insertion
+  const [cursorPos, setCursorPos] = useState<{ key: string; start: number; end: number } | null>(null);
 
   // ── Data fetching ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (!templateId) {
-      setFetchError(
-        "No template selected. Go back to Templates and choose one."
-      );
+      setFetchError("No template selected. Go back to Templates and choose one.");
       setLoading(false);
       return;
     }
 
     const supabase = createClient();
 
-    Promise.all([
-      supabase.auth.getUser(),
-      supabase
-        .from("templates")
-        .select("name")
-        .eq("id", templateId)
-        .single(),
-      supabase
-        .from("template_fields")
-        .select("*")
-        .eq("template_id", templateId)
-        .order("section_order")
-        .order("field_order"),
-      // Load draft data when ?draft= is present in the URL
-      draftParam ? loadDraft(supabase, draftParam) : Promise.resolve(null),
-      // Load phrase bank entries for this template
-      supabase
-        .from("phrase_bank_entries")
-        .select("id, field_key, title, content, category, offence_tags")
-        .eq("template_id", templateId)
-        .order("title"),
-    ]).then(([userRes, templateRes, fieldsRes, draftData, phrasesRes]) => {
-      setUserId(userRes.data.user?.id ?? null);
+    async function fetchData() {
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      setUserId(authUser?.id ?? null);
+      try {
+        setLoading(true);
 
-      if (templateRes.error || !templateRes.data) {
-        setFetchError("Template not found.");
-      } else if (fieldsRes.error) {
-        setFetchError("Failed to load template fields.");
-      } else {
-        const fields = (fieldsRes.data ?? []) as TemplateFieldDef[];
-        setTemplateName(templateRes.data.name);
+        // 1. Active version + template name
+        const { data: versionData, error: vError } = await supabase
+          .from("template_versions")
+          .select("id, template_id, form_heading, templates (name)")
+          .eq("template_id", templateId)
+          .eq("is_active", true)
+          .order("version_number", { ascending: false })
+          .limit(1)
+          .single();
+
+        if (vError || !versionData) throw new Error("Template version not found");
+
+        setTemplateName((versionData.templates as any).name);
+        setFormHeading((versionData as any).form_heading ?? null);
+
+        // 2. Fields for this version
+        const { data: fieldsData, error: fError } = await supabase
+          .from("template_fields")
+          .select("*")
+          .eq("template_version_id", versionData.id)
+          .order("field_order");
+
+        if (fError) throw fError;
+
+        const fields = (fieldsData ?? []) as TemplateFieldDef[];
         setTemplateFields(fields);
+
+        // 3. Initialise form values (optionally hydrated from a saved draft)
         const base = initFormValues(fields);
-        setFormValues(draftData ? applyDraftData(base, draftData) : base);
-      }
+        if (draftParam) {
+          const draftData = await loadDraft(supabase, draftParam);
+          setFormValues(draftData ? applyDraftData(base, draftData) : base);
+        } else {
+          setFormValues(base);
+        }
 
-      if (!phrasesRes.error) {
-        setDbPhrases((phrasesRes.data ?? []) as PhraseEntry[]);
+        // 4. Firm phrase bank
+        const phrasesRes = await fetch("/api/phrases");
+        if (phrasesRes.ok) {
+          const phrasesJson = await phrasesRes.json();
+          if (phrasesJson.data) {
+            setPhraseCategories(phrasesJson.data);
+            if (phrasesJson.data.length > 0) setExpandedCategory(phrasesJson.data[0].id);
+          }
+        }
+      } catch (err: any) {
+        setFetchError(err.message || "Failed to load template data");
+      } finally {
+        setLoading(false);
       }
+    }
 
-      setLoading(false);
-    });
+    fetchData();
   }, [templateId, draftParam]);
 
-  // ── Section grouping ───────────────────────────────────────────────────────
+  // ── Sections: group consecutive fields sharing the same section_heading ──────
   const sections = useMemo(() => {
-    const map = new Map<string, { order: number; fields: TemplateFieldDef[] }>();
-    for (const field of templateFields) {
-      if (!map.has(field.section)) {
-        map.set(field.section, { order: field.section_order, fields: [] });
+    if (templateFields.length === 0) return [];
+    const sorted = [...templateFields].sort((a, b) => a.field_order - b.field_order);
+    const result: Array<{ heading: string; fields: TemplateFieldDef[] }> = [];
+    for (const field of sorted) {
+      const heading = field.section_heading ?? "";
+      const last = result[result.length - 1];
+      if (!last || last.heading !== heading) {
+        result.push({ heading, fields: [field] });
+      } else {
+        last.fields.push(field);
       }
-      map.get(field.section)!.fields.push(field);
     }
-    return Array.from(map.entries())
-      .sort(([, a], [, b]) => a.order - b.order)
-      .map(([name, { fields }]) => ({
-        name,
-        fields: [...fields].sort((a, b) => a.field_order - b.field_order),
-      }));
+    return result;
   }, [templateFields]);
 
   // ── Form handlers ──────────────────────────────────────────────────────────
-  const handleFieldChange = (key: string, value: FieldValue) => {
+  function handleFieldChange(key: string, value: FieldValue) {
     setFormValues((prev) => ({ ...prev, [key]: value }));
     if (fieldErrors[key]) {
-      setFieldErrors((prev) => {
-        const next = { ...prev };
-        delete next[key];
-        return next;
-      });
+      setFieldErrors((prev) => { const next = { ...prev }; delete next[key]; return next; });
     }
-  };
+  }
 
-  const validate = (): boolean => {
+  function validate(): boolean {
     const errors: Record<string, string> = {};
     for (const field of templateFields) {
-      if (field.required) {
+      if (field.is_required) {
         const val = formValues[field.field_key];
         if (!val || (typeof val === "string" && !val.trim())) {
-          errors[field.field_key] = `${field.label} is required`;
+          errors[field.field_key] = `${field.field_label} is required`;
         }
       }
     }
     setFieldErrors(errors);
     return Object.keys(errors).length === 0;
-  };
+  }
 
   // ── Phrase bank ────────────────────────────────────────────────────────────
 
-  /** Dropdown options: only phrase-bank-eligible fields that exist in the template. */
-  const phraseTargetOptions = useMemo(
-    () =>
-      templateFields
-        .filter((f) => PHRASE_BANK_KEYS.includes(f.field_key))
-        .sort((a, b) => a.section_order - b.section_order || a.field_order - b.field_order)
-        .map((f) => ({ key: f.field_key, label: f.label })),
-    [templateFields]
-  );
+  /** "Insert into" dropdown options — only fields with phrase bank enabled. */
+  const phraseTargetOptions = useMemo(() => {
+    const opts = templateFields
+      .filter((f) => f.supports_phrase_bank)
+      .sort((a, b) => a.field_order - b.field_order)
+      .map((f) => ({ key: f.field_key, label: f.field_label }));
+    if (opts.length > 0 && !phraseTargetField) setPhraseTargetField(opts[0].key);
+    return opts;
+  }, [templateFields]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /** Phrases relevant to the currently-selected target field (plus generic ones with null field_key). */
-  const filteredPhrases = useMemo(
-    () => dbPhrases.filter((p) => p.field_key === phraseTargetField || p.field_key === null),
-    [dbPhrases, phraseTargetField]
-  );
-
-  /** Append phrase content to the target field value, separated by a blank line. */
-  const handleInsertPhrase = (content: string) => {
+  /** Insert phrase text at the last known cursor position, or append if unknown. */
+  function handleInsertPhrase(phraseText: string) {
+    if (!phraseTargetField) return;
     const current = (formValues[phraseTargetField] as string) ?? "";
-    const updated = current.trim() ? `${current}\n\n${content}` : content;
-    handleFieldChange(phraseTargetField, updated);
-    setSnackbarMessage("Phrase added to document.");
-    setSnackbarSeverity("success");
-    setSnackbarOpen(true);
-  };
 
-  /** When a textarea gains focus, auto-target the phrase panel to that field. */
-  const handleFieldFocus = (key: string) => {
-    if (PHRASE_BANK_KEYS.includes(key)) {
+    let updated: string;
+    if (cursorPos?.key === phraseTargetField) {
+      // Insert at cursor, replacing any selected text
+      const { start, end } = cursorPos;
+      updated = current.slice(0, start) + phraseText + current.slice(end);
+      // Advance cursor to end of inserted text
+      setCursorPos({ key: phraseTargetField, start: start + phraseText.length, end: start + phraseText.length });
+    } else {
+      // Fallback: append at end with a single newline separator
+      updated = current ? `${current}\n${phraseText}` : phraseText;
+    }
+
+    handleFieldChange(phraseTargetField, updated);
+    showSnackbar("Phrase inserted.", "success");
+  }
+
+  /** Capture cursor position when a phrase-bank textarea loses focus. */
+  function handleFieldBlur(key: string, start: number, end: number) {
+    if (templateFields.find((f) => f.field_key === key)?.supports_phrase_bank) {
+      setCursorPos({ key, start, end });
+    }
+  }
+
+  /** Auto-switch the target field when a phrase-bank-enabled textarea gains focus. */
+  function handleFieldFocus(key: string) {
+    if (templateFields.find((f) => f.field_key === key)?.supports_phrase_bank) {
       setPhraseTargetField(key);
     }
-  };
+  }
+
+  // ── Snackbar helper ────────────────────────────────────────────────────────
+  function showSnackbar(message: string, severity: "success" | "error") {
+    setSnackbarMessage(message);
+    setSnackbarSeverity(severity);
+    setSnackbarOpen(true);
+  }
 
   // ── Save draft ─────────────────────────────────────────────────────────────
-  const handleSaveDraft = async () => {
-    if (!templateId || !userId) {
-      setSnackbarMessage("Cannot save: not signed in.");
-      setSnackbarSeverity("error");
-      setSnackbarOpen(true);
-      return;
-    }
-
+  async function handleSaveDraft() {
+    if (!templateId || !userId) { showSnackbar("Cannot save: not signed in.", "error"); return; }
     setSaveStatus("saving");
-
     try {
       const supabase = createClient();
-      const id = await saveDraft({
-        supabase,
-        userId,
-        templateId,
-        formData: formValues,
-        draftId,
-      });
+      const id = await saveDraft({ supabase, userId, templateId, formData: formValues, draftId });
       setDraftId(id);
       setSaveStatus("saved");
-      setSnackbarMessage(draftId ? "Draft updated." : "Draft saved.");
-      setSnackbarSeverity("success");
-      setSnackbarOpen(true);
-      // Reset button back to idle after a short pause
+      showSnackbar(draftId ? "Draft updated." : "Draft saved.", "success");
       setTimeout(() => setSaveStatus("idle"), 2500);
-    } catch (err) {
-      console.error("Save draft error:", err);
+    } catch {
       setSaveStatus("error");
-      setSnackbarMessage("Failed to save draft. Please try again.");
-      setSnackbarSeverity("error");
-      setSnackbarOpen(true);
+      showSnackbar("Failed to save draft. Please try again.", "error");
       setTimeout(() => setSaveStatus("idle"), 3000);
     }
-  };
+  }
 
   // ── Generate DOCX ──────────────────────────────────────────────────────────
-  const handleGenerateDocx = async () => {
+  async function handleGenerateDocx() {
     if (!validate()) return;
-    if (!templateId || !userId) {
-      setSnackbarMessage("Cannot generate: not signed in.");
-      setSnackbarSeverity("error");
-      setSnackbarOpen(true);
-      return;
-    }
-
+    if (!templateId || !userId) { showSnackbar("Cannot generate: not signed in.", "error"); return; }
     setDocxStatus("generating");
-
     try {
-      const blob = await generateMagistratesNote(formValues);
-      const fileName = buildFileName(formValues);
-
-      // Trigger browser download
+      const response = await fetch("/api/generate-docx", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ templateId, formData: formValues }),
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to generate document");
+      }
+      const blob = await response.blob();
+      const fileName = `${templateName.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().slice(0, 10)}.docx`;
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
@@ -340,71 +310,20 @@ function DocumentBuilderContent() {
       anchor.click();
       document.body.removeChild(anchor);
       URL.revokeObjectURL(url);
-
-      // Store generation metadata (no file upload for MVP)
-      const supabase = createClient();
-      await supabase.from("generated_documents").insert({
-        user_id: userId,
-        template_id: templateId,
-        ...(draftId ? { draft_id: draftId } : {}),
-        file_name: fileName,
-      });
-
       setDocxStatus("done");
-      setSnackbarMessage("DOCX downloaded successfully.");
-      setSnackbarSeverity("success");
-      setSnackbarOpen(true);
+      showSnackbar("DOCX generated and downloaded.", "success");
       setTimeout(() => setDocxStatus("idle"), 3000);
-    } catch (err) {
-      console.error("DOCX generation error:", err);
+    } catch (err: any) {
       setDocxStatus("error");
-      setSnackbarMessage("Failed to generate DOCX. Please try again.");
-      setSnackbarSeverity("error");
-      setSnackbarOpen(true);
+      showSnackbar(err.message || "Failed to generate DOCX.", "error");
       setTimeout(() => setDocxStatus("idle"), 3000);
     }
-  };
-
-  // ── Right-panel handlers (unchanged) ──────────────────────────────────────
-  const handleTabChange = (_: React.SyntheticEvent, newValue: number) => {
-    setTabValue(newValue);
-  };
-
-  const handleExtractFields = () => {
-    const mockFields: ExtractedField[] = [
-      { id: "1", fieldName: "Defendant Name", suggestedValue: "John Smith", confidence: 95, approved: false },
-      { id: "2", fieldName: "Case Reference", suggestedValue: "CR-2024-001234", confidence: 88, approved: false },
-      { id: "3", fieldName: "Court Name", suggestedValue: "Crown Court, London", confidence: 92, approved: false },
-      { id: "4", fieldName: "Offence Date", suggestedValue: "15 January 2024", confidence: 85, approved: false },
-    ];
-    setExtractedFields(mockFields);
-    setTabValue(2);
-  };
-
-  const handleFieldApproval = (id: string, approved: boolean) => {
-    setExtractedFields((prev) =>
-      prev.map((f) => (f.id === id ? { ...f, approved } : f))
-    );
-  };
-
-  const handleExtractedValueChange = (id: string, value: string) => {
-    setExtractedFields((prev) =>
-      prev.map((f) => (f.id === id ? { ...f, suggestedValue: value } : f))
-    );
-  };
-
-  const getConfidenceColor = (
-    confidence: number
-  ): "success" | "warning" | "error" => {
-    if (confidence >= 90) return "success";
-    if (confidence >= 70) return "warning";
-    return "error";
-  };
+  }
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <Box sx={{ pb: 10 }}>
-      {/* Page Header */}
+      {/* Header */}
       <Box sx={{ mb: 4 }}>
         <Typography variant="h4" sx={{ fontWeight: 600, mb: 1, color: "#1A1A1A" }}>
           New Document
@@ -415,299 +334,223 @@ function DocumentBuilderContent() {
         </Typography>
       </Box>
 
-      {/* Loading */}
       {loading && (
         <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}>
           <CircularProgress />
         </Box>
       )}
 
-      {/* Error */}
-      {fetchError && (
-        <Alert severity="error" sx={{ mb: 3 }}>
-          {fetchError}
-        </Alert>
-      )}
+      {fetchError && <Alert severity="error" sx={{ mb: 3 }}>{fetchError}</Alert>}
 
-      {/* Main layout */}
       {!loading && !fetchError && (
         <Grid container spacing={3}>
-          {/* ── LEFT: Dynamic form ────────────────────────────────────────── */}
+          {/* ── LEFT: Dynamic form ─────────────────────────────────────── */}
           <Grid item xs={12} md={8}>
             <Paper sx={{ p: 3 }}>
-              {sections.map((section, sectionIdx) => (
-                <Box key={section.name}>
-                  <Typography
-                    variant="h6"
-                    sx={{ fontWeight: 600, mb: 2, color: "#1A1A1A" }}
-                  >
-                    {section.name}
+              {formHeading && (
+                <Box sx={{ mb: 3, pb: 2, borderBottom: "2px solid #E5E7EB", textAlign: "center" }}>
+                  <Typography variant="h5" sx={{ fontWeight: 800, letterSpacing: 1, color: "#111827", textTransform: "uppercase" }}>
+                    {formHeading}
                   </Typography>
-
+                </Box>
+              )}
+              {sections.map((section, idx) => (
+                <Box key={`section-${idx}`}>
+                  {section.heading && (
+                    <Typography
+                      variant="h6"
+                      sx={{ fontWeight: 700, mb: 2, mt: idx > 0 ? 1 : 0, color: "#1A1A1A" }}
+                    >
+                      {section.heading}
+                    </Typography>
+                  )}
                   <Grid container spacing={2}>
                     {section.fields.map((field) => (
-                      <Grid item xs={fieldColSpan(field).xs} sm={fieldColSpan(field).sm} md={fieldColSpan(field).md} key={field.field_key}>
+                      <Grid item xs={fieldColSpan(field).xs} sm={fieldColSpan(field).sm} key={field.field_key}>
                         <DynamicField
                           field={field}
-                          value={
-                            formValues[field.field_key] ??
-                            (field.field_type === "repeater" ? [] : "")
-                          }
+                          value={formValues[field.field_key] ?? ""}
                           onChange={handleFieldChange}
                           onFocus={handleFieldFocus}
+                          onBlur={handleFieldBlur}
                           error={fieldErrors[field.field_key]}
                         />
                       </Grid>
                     ))}
                   </Grid>
-
-                  {sectionIdx < sections.length - 1 && (
-                    <Divider sx={{ my: 3 }} />
-                  )}
+                  {idx < sections.length - 1 && <Divider sx={{ my: 3 }} />}
                 </Box>
               ))}
             </Paper>
           </Grid>
 
-          {/* ── RIGHT: Phrase bank & AI tools (unchanged) ─────────────────── */}
+          {/* ── RIGHT: Phrase Bank ─────────────────────────────────────── */}
           <Grid item xs={12} md={4}>
-            <Paper sx={{ p: 0, overflow: "hidden" }}>
-              <Tabs
-                value={tabValue}
-                onChange={handleTabChange}
-                variant="fullWidth"
-                sx={{
-                  borderBottom: "1px solid #E0E0E0",
-                  "& .MuiTab-root": {
-                    textTransform: "none",
-                    fontWeight: 500,
-                    fontSize: 13,
-                  },
-                }}
-              >
-                <Tab label="Suggested Phrases" />
-                <Tab label="Paste Source" />
-                <Tab label="Extracted Fields" />
-              </Tabs>
+            <Paper elevation={0} sx={{ border: "1px solid #E5E7EB", borderRadius: 2, overflow: "hidden" }}>
+              {/* Panel header */}
+              <Box sx={{ px: 2, py: 1.5, borderBottom: "1px solid #E5E7EB", bgcolor: "#F9FAFB" }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700, color: "#111827" }}>
+                  Phrase Bank
+                </Typography>
+                <Typography variant="caption" sx={{ color: "#6B7280" }}>
+                  Click a phrase to insert it into the selected field
+                </Typography>
+              </Box>
 
-              {/* Tab 0 – Suggested Phrases */}
-              <TabPanel value={tabValue} index={0}>
-                <Box sx={{ px: 2 }}>
-                  {/* Target field selector */}
-                  <FormControl fullWidth size="small" sx={{ mb: 2 }}>
-                    <InputLabel>Insert into</InputLabel>
-                    <Select
-                      value={phraseTargetField}
-                      label="Insert into"
-                      onChange={(e) => setPhraseTargetField(e.target.value)}
-                    >
-                      {phraseTargetOptions.map(({ key, label }) => (
-                        <MenuItem key={key} value={key}>
-                          {label}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-
-                  {/* Phrase list */}
-                  <Box sx={{ maxHeight: 430, overflow: "auto" }}>
-                    {filteredPhrases.length === 0 ? (
-                      <Typography
-                        variant="body2"
-                        sx={{ color: "#666666", textAlign: "center", py: 4 }}
+              <Box sx={{ p: 2 }}>
+                {phraseTargetOptions.length === 0 ? (
+                  <Typography variant="body2" sx={{ color: "#9CA3AF", textAlign: "center", py: 4 }}>
+                    No fields in this template have phrase bank enabled.
+                  </Typography>
+                ) : (
+                  <>
+                    {/* Target field selector */}
+                    <FormControl fullWidth size="small" sx={{ mb: 2 }}>
+                      <InputLabel>Insert into</InputLabel>
+                      <Select
+                        value={phraseTargetField}
+                        label="Insert into"
+                        onChange={(e) => setPhraseTargetField(e.target.value)}
                       >
-                        No phrases available for this field.
-                      </Typography>
-                    ) : (
-                      filteredPhrases.map((phrase) => (
-                        <Card
-                          key={phrase.id}
-                          sx={{ mb: 2, border: "1px solid #E0E0E0", boxShadow: "none" }}
-                        >
-                          <CardContent sx={{ pb: "12px !important" }}>
+                        {phraseTargetOptions.map(({ key, label }) => (
+                          <MenuItem key={key} value={key}>{label}</MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+
+                    {/* Phrase list — accordion by category */}
+                    <Box sx={{ maxHeight: 480, overflowY: "auto", mx: -0.5 }}>
+                      {phraseCategories.length === 0 ? (
+                        <Typography variant="body2" sx={{ color: "#9CA3AF", textAlign: "center", py: 4 }}>
+                          No phrases added yet. Ask your admin to add phrases.
+                        </Typography>
+                      ) : (
+                        phraseCategories.map((cat, idx) => {
+                          const isOpen = expandedCategory === cat.id;
+                          return (
                             <Box
+                              key={cat.id}
                               sx={{
-                                display: "flex",
-                                justifyContent: "space-between",
-                                alignItems: "flex-start",
-                                mb: 0.5,
-                              }}
-                            >
-                              <Typography
-                                variant="subtitle2"
-                                sx={{ fontWeight: 600, fontSize: 14 }}
-                              >
-                                {phrase.title}
-                              </Typography>
-                              {phrase.category && (
-                                <Chip
-                                  label={phrase.category}
-                                  size="small"
-                                  sx={{
-                                    backgroundColor: "#F5F5F5",
-                                    color: "#666666",
-                                    fontSize: 10,
-                                    height: 18,
-                                    ml: 1,
-                                    flexShrink: 0,
-                                  }}
-                                />
-                              )}
-                            </Box>
-                            <Typography
-                              variant="body2"
-                              sx={{
-                                color: "#666666",
-                                fontSize: 12,
-                                lineHeight: 1.5,
+                                border: "1px solid #E5E7EB",
+                                borderRadius: 2,
                                 mb: 1,
-                                display: "-webkit-box",
-                                WebkitLineClamp: 3,
-                                WebkitBoxOrient: "vertical",
                                 overflow: "hidden",
+                                boxShadow: isOpen ? "0 2px 8px rgba(0,0,0,0.06)" : "none",
+                                transition: "box-shadow 0.2s",
                               }}
                             >
-                              {phrase.content}
-                            </Typography>
-                            {phrase.offence_tags?.length > 0 && (
-                              <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mb: 1 }}>
-                                {phrase.offence_tags.map((tag) => (
-                                  <Chip
-                                    key={tag}
-                                    label={tag}
-                                    size="small"
-                                    sx={{ backgroundColor: "#EEF2EE", fontSize: 10, height: 18 }}
-                                  />
-                                ))}
+                              {/* Category header — clickable toggle */}
+                              <Box
+                                onClick={() => setExpandedCategory(isOpen ? null : cat.id)}
+                                sx={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "space-between",
+                                  px: 1.5,
+                                  py: 1.25,
+                                  cursor: "pointer",
+                                  bgcolor: isOpen ? "#F0F5F1" : "#F9FAFB",
+                                  borderBottom: isOpen ? "1px solid #E5E7EB" : "none",
+                                  transition: "background-color 0.15s",
+                                  "&:hover": { bgcolor: "#EBF2EC" },
+                                  userSelect: "none",
+                                }}
+                              >
+                                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                                  <Typography variant="body2" sx={{ fontWeight: 700, color: "#111827" }}>
+                                    {cat.name}
+                                  </Typography>
+                                  <Box
+                                    sx={{
+                                      bgcolor: isOpen ? "#395B45" : "#E5E7EB",
+                                      color: isOpen ? "#fff" : "#6B7280",
+                                      borderRadius: 10,
+                                      px: 0.75,
+                                      py: 0.1,
+                                      fontSize: 11,
+                                      fontWeight: 700,
+                                      lineHeight: 1.6,
+                                      minWidth: 20,
+                                      textAlign: "center",
+                                      transition: "all 0.15s",
+                                    }}
+                                  >
+                                    {cat.phrases.length}
+                                  </Box>
+                                </Box>
+                                <Box
+                                  sx={{
+                                    transform: isOpen ? "rotate(180deg)" : "rotate(0deg)",
+                                    transition: "transform 0.2s",
+                                    display: "flex",
+                                    color: "#6B7280",
+                                  }}
+                                >
+                                  <ChevronDown size={16} />
+                                </Box>
                               </Box>
-                            )}
-                            <Button
-                              variant="outlined"
-                              color="primary"
-                              size="small"
-                              startIcon={<Plus size={14} />}
-                              fullWidth
-                              sx={{ mt: 0.5 }}
-                              onClick={() => handleInsertPhrase(phrase.content)}
-                            >
-                              Add to Document
-                            </Button>
-                          </CardContent>
-                        </Card>
-                      ))
-                    )}
-                  </Box>
-                </Box>
-              </TabPanel>
 
-              {/* Tab 1 – Paste Source */}
-              <TabPanel value={tabValue} index={1}>
-                <Box sx={{ px: 2 }}>
-                  <TextField
-                    fullWidth
-                    multiline
-                    rows={12}
-                    placeholder="Paste source text here (e.g., case notes, previous statements)..."
-                    value={sourceText}
-                    onChange={(e) => setSourceText(e.target.value)}
-                    sx={{ mb: 2 }}
-                  />
-                  <Button
-                    variant="contained"
-                    color="primary"
-                    fullWidth
-                    startIcon={<Sparkles size={16} />}
-                    onClick={handleExtractFields}
-                    disabled={!sourceText.trim()}
-                  >
-                    Extract Fields
-                  </Button>
-                </Box>
-              </TabPanel>
-
-              {/* Tab 2 – Extracted Fields */}
-              <TabPanel value={tabValue} index={2}>
-                <Box sx={{ px: 2, maxHeight: 500, overflow: "auto" }}>
-                  {extractedFields.length === 0 ? (
-                    <Typography
-                      variant="body2"
-                      sx={{ color: "#666666", textAlign: "center", py: 4 }}
-                    >
-                      No extracted fields yet. Paste source text and click
-                      &quot;Extract Fields&quot;.
-                    </Typography>
-                  ) : (
-                    extractedFields.map((field) => (
-                      <Box
-                        key={field.id}
-                        sx={{
-                          mb: 2,
-                          p: 2,
-                          border: "1px solid #E0E0E0",
-                          borderRadius: 1,
-                          backgroundColor: field.approved
-                            ? "rgba(57, 91, 69, 0.04)"
-                            : "transparent",
-                        }}
-                      >
-                        <Box
-                          sx={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "center",
-                            mb: 1,
-                          }}
-                        >
-                          <Typography
-                            variant="subtitle2"
-                            sx={{ fontWeight: 600, fontSize: 13 }}
-                          >
-                            {field.fieldName}
-                          </Typography>
-                          <Chip
-                            label={`${field.confidence}%`}
-                            size="small"
-                            color={getConfidenceColor(field.confidence)}
-                            sx={{ fontSize: 10, height: 18 }}
-                          />
-                        </Box>
-                        <TextField
-                          fullWidth
-                          size="small"
-                          value={field.suggestedValue}
-                          onChange={(e) =>
-                            handleExtractedValueChange(field.id, e.target.value)
-                          }
-                          sx={{ mb: 1 }}
-                        />
-                        <FormControlLabel
-                          control={
-                            <Switch
-                              checked={field.approved}
-                              onChange={(e) =>
-                                handleFieldApproval(field.id, e.target.checked)
-                              }
-                              color="primary"
-                              size="small"
-                            />
-                          }
-                          label={
-                            <Typography variant="body2" sx={{ fontSize: 12 }}>
-                              Approve
-                            </Typography>
-                          }
-                        />
-                      </Box>
-                    ))
-                  )}
-                </Box>
-              </TabPanel>
+                              {/* Phrases — collapsed by default */}
+                              <Collapse in={isOpen} timeout={200}>
+                                <Box sx={{ p: 1, bgcolor: "#fff" }}>
+                                  {cat.phrases.length === 0 ? (
+                                    <Typography variant="caption" sx={{ color: "#9CA3AF", display: "block", textAlign: "center", py: 1.5 }}>
+                                      No phrases in this category.
+                                    </Typography>
+                                  ) : (
+                                    cat.phrases.map((phrase) => (
+                                      <Box
+                                        key={phrase.id}
+                                        onClick={() => setPreviewPhrase(phrase)}
+                                        sx={{
+                                          display: "flex",
+                                          alignItems: "center",
+                                          gap: 1,
+                                          px: 1.25,
+                                          py: 1,
+                                          mb: 0.5,
+                                          borderRadius: 1.5,
+                                          cursor: "pointer",
+                                          border: "1px solid transparent",
+                                          transition: "all 0.15s",
+                                          "&:hover": {
+                                            bgcolor: "rgba(57,91,69,0.06)",
+                                            border: "1px solid #C4D9C8",
+                                          },
+                                          "&:last-child": { mb: 0 },
+                                        }}
+                                      >
+                                        <Box
+                                          sx={{
+                                            width: 5,
+                                            height: 5,
+                                            borderRadius: "50%",
+                                            bgcolor: "#395B45",
+                                            flexShrink: 0,
+                                          }}
+                                        />
+                                        <Typography variant="body2" sx={{ fontSize: 13, color: "#1F2937", lineHeight: 1.4 }}>
+                                          {phrase.label || phrase.phrase_text}
+                                        </Typography>
+                                      </Box>
+                                    ))
+                                  )}
+                                </Box>
+                              </Collapse>
+                            </Box>
+                          );
+                        })
+                      )}
+                    </Box>
+                  </>
+                )}
+              </Box>
             </Paper>
           </Grid>
         </Grid>
       )}
 
-      {/* Bottom Fixed Action Bar */}
+      {/* Fixed bottom action bar */}
       <Paper
         sx={{
           position: "fixed",
@@ -732,58 +575,77 @@ function DocumentBuilderContent() {
           variant="outlined"
           color={saveStatus === "error" ? "error" : "primary"}
           startIcon={
-            saveStatus === "saving" ? (
-              <CircularProgress size={14} color="inherit" />
-            ) : saveStatus === "saved" ? (
-              <Check size={16} />
-            ) : (
-              <Save size={16} />
-            )
+            saveStatus === "saving" ? <CircularProgress size={14} color="inherit" /> :
+            saveStatus === "saved"  ? <Check size={16} /> :
+            <Save size={16} />
           }
           onClick={handleSaveDraft}
           disabled={saveStatus === "saving"}
         >
-          {saveStatus === "saving"
-            ? "Saving…"
-            : saveStatus === "saved"
-            ? "Saved"
-            : "Save Draft"}
+          {saveStatus === "saving" ? "Saving…" : saveStatus === "saved" ? "Saved" : "Save Draft"}
         </Button>
         <Button
           variant="contained"
           color={docxStatus === "error" ? "error" : "primary"}
           startIcon={
-            docxStatus === "generating" ? (
-              <CircularProgress size={14} color="inherit" />
-            ) : docxStatus === "done" ? (
-              <Check size={16} />
-            ) : (
-              <FileDown size={16} />
-            )
+            docxStatus === "generating" ? <CircularProgress size={14} color="inherit" /> :
+            docxStatus === "done"       ? <Check size={16} /> :
+            <FileDown size={16} />
           }
           onClick={handleGenerateDocx}
           disabled={docxStatus === "generating"}
         >
-          {docxStatus === "generating"
-            ? "Generating…"
-            : docxStatus === "done"
-            ? "Downloaded"
-            : "Generate DOCX"}
+          {docxStatus === "generating" ? "Generating…" : docxStatus === "done" ? "Downloaded" : "Generate DOCX"}
         </Button>
       </Paper>
 
-      {/* Save feedback snackbar */}
+      {/* Phrase preview dialog */}
+      <Dialog
+        open={!!previewPhrase}
+        onClose={() => setPreviewPhrase(null)}
+        fullWidth
+        maxWidth="sm"
+        PaperProps={{ sx: { borderRadius: 3 } }}
+      >
+        <DialogTitle sx={{ fontWeight: 700, pb: 1 }}>
+          {previewPhrase?.label || "Phrase"}
+        </DialogTitle>
+        <DialogContent>
+          <Typography
+            variant="body2"
+            sx={{ whiteSpace: "pre-wrap", color: "#374151", lineHeight: 1.7 }}
+          >
+            {previewPhrase?.phrase_text}
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2, gap: 1 }}>
+          <Button
+            onClick={() => setPreviewPhrase(null)}
+            sx={{ color: "#6B7280", textTransform: "none" }}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => {
+              if (previewPhrase) handleInsertPhrase(previewPhrase.phrase_text);
+              setPreviewPhrase(null);
+            }}
+            sx={{ bgcolor: "#395B45", "&:hover": { bgcolor: "#2D4A38" }, textTransform: "none", fontWeight: 600 }}
+          >
+            Insert into Field
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Feedback snackbar */}
       <Snackbar
         open={snackbarOpen}
         autoHideDuration={3500}
         onClose={() => setSnackbarOpen(false)}
         anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
       >
-        <Alert
-          onClose={() => setSnackbarOpen(false)}
-          severity={snackbarSeverity}
-          sx={{ width: "100%" }}
-        >
+        <Alert onClose={() => setSnackbarOpen(false)} severity={snackbarSeverity} sx={{ width: "100%" }}>
           {snackbarMessage}
         </Alert>
       </Snackbar>
@@ -793,7 +655,7 @@ function DocumentBuilderContent() {
 
 export default function NewDocumentPage() {
   return (
-    <Suspense fallback={<Box sx={{ p: 4 }}>Loading…</Box>}>
+    <Suspense fallback={<Box sx={{ p: 4 }}><CircularProgress /></Box>}>
       <DocumentBuilderContent />
     </Suspense>
   );
