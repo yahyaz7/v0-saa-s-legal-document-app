@@ -81,18 +81,12 @@ export function AppShell({ children }: AppShellProps) {
           .join("");
         setUserInitials(initials || user.email[0].toUpperCase());
 
-        // Fetch the user's firm name + logo
-        const firmId = user.app_metadata?.firm_id as string | undefined;
-        if (firmId) {
-          const { data: firm } = await supabase
-            .from("firms")
-            .select("name, logo_url")
-            .eq("id", firmId)
-            .single();
-          if (firm) {
-            if (firm.name) setFirmName(firm.name);
-            if (firm.logo_url) setFirmLogoUrl(firm.logo_url);
-          }
+        // Fetch the firm's name + logo — cookies are sent automatically (same-origin)
+        const res = await fetch("/api/firm-info");
+        if (res.ok) {
+          const json = await res.json();
+          if (json.data?.name) setFirmName(json.data.name);
+          if (json.data?.logo_url) setFirmLogoUrl(json.data.logo_url);
         }
       }
     });
