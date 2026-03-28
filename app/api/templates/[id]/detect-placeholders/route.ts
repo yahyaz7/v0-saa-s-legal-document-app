@@ -6,7 +6,9 @@ import PizZip from "pizzip";
 
 type DetectedItem =
   | { type: "heading"; value: string }
-  | { type: "placeholder"; value: string };
+  | { type: "placeholder"; value: string }
+  /** Repeater detected from {#loopName} tag. subFields = variables found inside the loop block. */
+  | { type: "repeater"; value: string; subFields: string[] };
 
 type DetectResult = {
   items: DetectedItem[];
@@ -15,9 +17,11 @@ type DetectResult = {
 
 // POST /api/templates/[id]/detect-placeholders
 // Admin / super_admin only.
-// Downloads the template DOCX, extracts the document title / form heading,
-// section headings, and {snake_case} placeholders in document order.
-// Body (optional): { versionId: string }
+// Downloads the template DOCX and extracts:
+//   - Document title / form heading
+//   - Section headings (Word Heading style)
+//   - {scalar} placeholders
+//   - {#loopName} repeater groups + their sub-field variables
 // Returns { data: DetectResult }
 export async function POST(
   request: NextRequest,
@@ -62,27 +66,76 @@ export async function POST(
   const content = await blob.arrayBuffer();
   const zip = new PizZip(content);
 
-  // Regex constants
-  const PARA_RE = /<w:p[\s>][\s\S]*?<\/w:p>/g;
-  const TEXT_RE = /<w:t[^>]*>([\s\S]*?)<\/w:t>/g;
-  const PH_RE = /\{[a-z][a-z0-9_]*\}/g;
-  // Matches Word paragraph styles used for document title or section headings
-  const TITLE_STYLE_RE = /<w:pStyle[^>]+w:val="Title"/;
+  // ── Regex constants ──────────────────────────────────────────────────────────
+  const PARA_RE          = /<w:p[\s>][\s\S]*?<\/w:p>/g;
+  const TEXT_RE          = /<w:t[^>]*>([\s\S]*?)<\/w:t>/g;
+  const PH_RE            = /\{([a-z][a-z0-9_]*)\}/g;     // {scalar}
+  const LOOP_OPEN_RE     = /\{#([a-z][a-z0-9_]*)\}/g;    // {#loop}
+  const TITLE_STYLE_RE   = /<w:pStyle[^>]+w:val="Title"/;
   const HEADING_STYLE_RE = /<w:pStyle[^>]+w:val="[Hh]eading\d"/;
 
-  /** Concatenate all text runs within a paragraph element. */
-  function paraText(para: string): string {
+  /** Concatenate all <w:t> text runs within a paragraph element. */
+  function paraText(paraXml: string): string {
     let text = "";
     const re = new RegExp(TEXT_RE.source, "g");
     let m: RegExpExecArray | null;
-    while ((m = re.exec(para)) !== null) text += m[1];
+    while ((m = re.exec(paraXml)) !== null) text += m[1];
     return text;
   }
 
   /**
-   * Heuristic: a paragraph looks like a document title if it has no placeholders,
-   * its trimmed text is non-empty, entirely uppercase, and at most 120 characters.
+   * Concatenate ALL <w:t> text content from an XML file into one flat string.
+   * Used for loop-region scanning where content is spread across table cells.
    */
+  function fullDocText(xml: string): string {
+    let text = "";
+    const re = new RegExp(TEXT_RE.source, "g");
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(xml)) !== null) text += m[1];
+    return text;
+  }
+
+  /**
+   * Scan full document text for {#loopName}…{/loopName} regions.
+   * Returns a map of loopName → ordered list of unique sub-field variable names.
+   */
+  function extractLoopSubFields(xml: string): Map<string, string[]> {
+    const text = fullDocText(xml);
+    const result = new Map<string, string[]>();
+
+    // Match {#loopName}(content){/loopName} — non-greedy
+    const loopRe = /\{#([a-z][a-z0-9_]*)\}([\s\S]*?)\{\/\1\}/g;
+    let loopMatch: RegExpExecArray | null;
+
+    while ((loopMatch = loopRe.exec(text)) !== null) {
+      const loopName = loopMatch[1];
+      const loopContent = loopMatch[2];
+
+      const subFields: string[] = [];
+      const subRe = /\{([a-z][a-z0-9_]*)\}/g;
+      let subMatch: RegExpExecArray | null;
+
+      while ((subMatch = subRe.exec(loopContent)) !== null) {
+        if (!subFields.includes(subMatch[1])) {
+          subFields.push(subMatch[1]);
+        }
+      }
+
+      // Merge if the same loop name appears multiple times (e.g. open/close across docs)
+      if (result.has(loopName)) {
+        const existing = result.get(loopName)!;
+        for (const sf of subFields) {
+          if (!existing.includes(sf)) existing.push(sf);
+        }
+      } else {
+        result.set(loopName, subFields);
+      }
+    }
+
+    return result;
+  }
+
+  /** Heuristic: all-caps non-empty text ≤ 120 chars with no placeholders. */
   function looksLikeTitle(text: string): boolean {
     const t = text.trim();
     return (
@@ -94,8 +147,30 @@ export async function POST(
     );
   }
 
+  // ── Step 1: Extract loop sub-field maps from all XML files ─────────────────
+  // Do this first so we know which variables are "owned" by a loop
+  const loopSubFieldMap = new Map<string, string[]>(); // loopName → [sub, field, ...]
+
+  const mainDocName = Object.keys(zip.files).find((n) => n === "word/document.xml");
+  if (mainDocName) {
+    try {
+      const xml = zip.files[mainDocName].asText();
+      for (const [k, v] of extractLoopSubFields(xml)) {
+        loopSubFieldMap.set(k, v);
+      }
+    } catch { /* ignore */ }
+  }
+
+  // Collect all loop sub-field names into a flat set for exclusion from scalar scan
+  const allSubFieldNames = new Set<string>();
+  for (const sfs of loopSubFieldMap.values()) {
+    for (const sf of sfs) allSubFieldNames.add(sf);
+  }
+
+  // ── Step 2: Paragraph-level scan for headings, scalars, and loop open tags ──
   const items: DetectedItem[] = [];
-  const seen = new Set<string>();
+  const seenScalars   = new Set<string>();
+  const seenRepeaters = new Set<string>();
   let suggestedHeading: string | null = null;
 
   function scanXml(xml: string, includeHeadings: boolean) {
@@ -104,11 +179,11 @@ export async function POST(
       const text = paraText(para).trim();
       if (!text) continue;
 
-      // Document title detection (Title style or all-caps heuristic)
+      // Document title detection
       if (!suggestedHeading) {
         if (TITLE_STYLE_RE.test(para) || (!HEADING_STYLE_RE.test(para) && looksLikeTitle(text))) {
           suggestedHeading = text;
-          continue; // title is not rendered as a section heading — skip to next para
+          continue;
         }
       }
 
@@ -117,46 +192,56 @@ export async function POST(
         items.push({ type: "heading", value: text });
       }
 
-      // Placeholder detection
-      const phs = text.match(PH_RE) ?? [];
-      for (const token of phs) {
-        const name = token.slice(1, -1);
-        if (!seen.has(name)) {
-          seen.add(name);
+      // Repeater loop open tag: {#loopName}
+      const loopRe = new RegExp(LOOP_OPEN_RE.source, "g");
+      let loopMatch: RegExpExecArray | null;
+      while ((loopMatch = loopRe.exec(text)) !== null) {
+        const loopName = loopMatch[1];
+        if (!seenRepeaters.has(loopName)) {
+          seenRepeaters.add(loopName);
+          // Attach the pre-extracted sub-fields (may be [] if loop spans multiple cells)
+          const subFields = loopSubFieldMap.get(loopName) ?? [];
+          items.push({ type: "repeater", value: loopName, subFields });
+        }
+      }
+
+      // Scalar placeholder detection — skip if it's a loop sub-field
+      const phRe = new RegExp(PH_RE.source, "g");
+      let phMatch: RegExpExecArray | null;
+      while ((phMatch = phRe.exec(text)) !== null) {
+        const name = phMatch[1];
+        if (!seenScalars.has(name) && !seenRepeaters.has(name) && !allSubFieldNames.has(name)) {
+          seenScalars.add(name);
           items.push({ type: "placeholder", value: name });
         }
       }
     }
   }
 
-  // Process main document body first (preserves reading order + includes headings)
-  const mainDocName = Object.keys(zip.files).find((n) => n === "word/document.xml");
+  // Scan main doc
   if (mainDocName) {
     try {
       scanXml(zip.files[mainDocName].asText(), true);
-    } catch {
-      // fall through to general scan
-    }
+    } catch { /* fall through */ }
   }
 
-  // Process remaining XML for any additional placeholders (headers, footers, tables)
+  // Scan remaining XML (headers, footers, etc.)
   Object.keys(zip.files)
     .filter((n) => n.endsWith(".xml") && !n.includes("_rels") && n !== "word/document.xml")
     .forEach((name) => {
-      let xml: string;
       try {
-        xml = zip.files[name].asText();
-      } catch {
-        return;
-      }
-      scanXml(xml, false);
+        scanXml(zip.files[name].asText(), false);
+      } catch { /* skip */ }
     });
 
-  const placeholderCount = items.filter((i) => i.type === "placeholder").length;
+  const placeholderCount = items.filter(
+    (i) => i.type === "placeholder" || i.type === "repeater"
+  ).length;
 
   if (placeholderCount === 0) {
     return badRequest(
-      "No placeholders detected. Make sure your DOCX uses {snake_case} tokens (e.g. {client_name}). " +
+      "No placeholders detected. Make sure your DOCX uses {snake_case} tokens (e.g. {client_name}) " +
+      "and {#loopName}/{/loopName} for repeating rows. " +
       "If placeholders are present, try re-typing them in Word to avoid hidden formatting splits."
     );
   }

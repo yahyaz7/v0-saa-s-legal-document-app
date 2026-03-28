@@ -49,7 +49,9 @@ type FormValues = Record<string, FieldValue>;
 function initFormValues(fields: TemplateFieldDef[]): FormValues {
   const values: FormValues = {};
   for (const field of fields) {
-    values[field.field_key] = field.field_type === "checkbox" ? false : "";
+    if (field.field_type === "checkbox") values[field.field_key] = false;
+    else if (field.field_type === "repeater") values[field.field_key] = [];
+    else values[field.field_key] = "";
   }
   return values;
 }
@@ -68,9 +70,11 @@ function applyDraftData(base: FormValues, draft: DraftFormData): FormValues {
   return result;
 }
 
-/** Grid column span — textareas take full width, everything else half. */
+/** Grid column span — textareas and repeaters take full width, everything else half. */
 function fieldColSpan(field: TemplateFieldDef) {
-  return field.field_type === "textarea" ? { xs: 12 } : { xs: 12, sm: 6 };
+  return field.field_type === "textarea" || field.field_type === "repeater"
+    ? { xs: 12 }
+    : { xs: 12, sm: 6 };
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -210,8 +214,14 @@ function DocumentBuilderContent() {
     for (const field of templateFields) {
       if (field.is_required) {
         const val = formValues[field.field_key];
-        if (!val || (typeof val === "string" && !val.trim())) {
-          errors[field.field_key] = `${field.field_label} is required`;
+        if (field.field_type === "repeater") {
+          if (!Array.isArray(val) || (val as any[]).length === 0) {
+            errors[field.field_key] = `${field.field_label} requires at least one row`;
+          }
+        } else if (field.field_type !== "checkbox") {
+          if (!val || (typeof val === "string" && !val.trim())) {
+            errors[field.field_key] = `${field.field_label} is required`;
+          }
         }
       }
     }
@@ -308,6 +318,12 @@ function DocumentBuilderContent() {
     try {
       const supabase = createClient();
       const id = await saveDraft({ supabase, userId, templateId, formData: formValues, draftId });
+      if (!draftId) {
+        // First save — update URL so a refresh reloads this draft
+        const url = new URL(window.location.href);
+        url.searchParams.set("draft", id);
+        window.history.replaceState(null, "", url.toString());
+      }
       setDraftId(id);
       setSaveStatus("saved");
       showSnackbar(draftId ? "Draft updated." : "Draft saved.", "success");
@@ -327,15 +343,21 @@ function DocumentBuilderContent() {
     try {
       const response = await fetch("/api/generate-docx", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ templateId, formData: formValues }),
+        headers: { 
+          "Content-Type": "application/json",
+          "X-Requested-With": "XMLHttpRequest",
+        },
+        body: JSON.stringify({ templateId, formData: formValues, draftId }),
       });
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.error || "Failed to generate document");
       }
       const blob = await response.blob();
-      const fileName = `${templateName.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().slice(0, 10)}.docx`;
+      // Use the server-generated filename from Content-Disposition if present
+      const disposition = response.headers.get("Content-Disposition") ?? "";
+      const serverName = disposition.match(/filename="([^"]+)"/)?.[1];
+      const fileName = serverName || `${templateName.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().slice(0, 10)}.docx`;
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
@@ -345,7 +367,17 @@ function DocumentBuilderContent() {
       document.body.removeChild(anchor);
       URL.revokeObjectURL(url);
       setDocxStatus("done");
-      showSnackbar("DOCX generated and downloaded.", "success");
+
+      // Warn user if some template placeholders were unfilled
+      const unmatched = response.headers.get("X-Unmatched-Placeholders");
+      if (unmatched) {
+        showSnackbar(
+          `Document downloaded, but some fields were blank: ${unmatched.split(",").join(", ")}. Check that your template field names match exactly.`,
+          "error"
+        );
+      } else {
+        showSnackbar("DOCX generated and downloaded.", "success");
+      }
       setTimeout(() => setDocxStatus("idle"), 3000);
     } catch (err: any) {
       setDocxStatus("error");
@@ -377,7 +409,7 @@ function DocumentBuilderContent() {
       {fetchError && <Alert severity="error" sx={{ mb: 3 }}>{fetchError}</Alert>}
 
       {!loading && !fetchError && (
-        <Grid container spacing={3}>
+        <Grid container spacing={3} alignItems="flex-start">
           {/* ── LEFT: Dynamic form ─────────────────────────────────────── */}
           <Grid item xs={12} md={8}>
             <Paper sx={{ p: 3 }}>
@@ -418,9 +450,22 @@ function DocumentBuilderContent() {
             </Paper>
           </Grid>
 
-          {/* ── RIGHT: Phrase Bank ─────────────────────────────────────── */}
-          <Grid item xs={12} md={4}>
-            <Paper elevation={0} sx={{ border: "1px solid #E5E7EB", borderRadius: 2, overflow: "hidden" }}>
+          {/* ── RIGHT: Phrase Bank — sticky sidebar ──────────────────── */}
+          <Grid
+            item xs={12} md={4}
+            sx={{
+              position: { md: "sticky" },
+              top: { md: 24 },
+              maxHeight: { md: "calc(100vh - 140px)" },
+              overflowY: { md: "auto" },
+              display: "flex",
+              flexDirection: "column",
+            }}
+          >
+            <Paper
+              elevation={0}
+              sx={{ border: "1px solid #E5E7EB", borderRadius: 2, overflow: "hidden", flex: 1, display: "flex", flexDirection: "column" }}
+            >
               {/* Panel header */}
               <Box sx={{ px: 2, py: 1.5, borderBottom: "1px solid #E5E7EB", bgcolor: "#F9FAFB", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <Box>
@@ -444,7 +489,7 @@ function DocumentBuilderContent() {
                 </Button>
               </Box>
 
-              <Box sx={{ p: 2 }}>
+              <Box sx={{ p: 2, flex: 1, overflowY: "auto", minHeight: 0 }}>
                 {phraseTargetOptions.length === 0 ? (
                   <Typography variant="body2" sx={{ color: "#9CA3AF", textAlign: "center", py: 4 }}>
                     No fields in this template have phrase bank enabled.
@@ -465,8 +510,8 @@ function DocumentBuilderContent() {
                       </Select>
                     </FormControl>
 
-                    {/* Phrase list — accordion by category */}
-                    <Box sx={{ maxHeight: 480, overflowY: "auto", mx: -0.5 }}>
+                    {/* Phrase list — accordion by category, fills remaining panel height */}
+                    <Box sx={{ overflowY: "auto", mx: -0.5 }}>
                       {phraseCategories.length === 0 ? (
                         <Typography variant="body2" sx={{ color: "#9CA3AF", textAlign: "center", py: 4 }}>
                           No phrases added yet. Ask your admin to add phrases.

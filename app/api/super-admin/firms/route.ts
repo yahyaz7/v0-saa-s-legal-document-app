@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
 
   const { data: firms, error: firmsError } = await db
     .from("firms")
-    .select("id, name, slug, created_at")
+    .select("id, name, slug, logo_url, created_at")
     .order("created_at", { ascending: false });
 
   if (firmsError) return err(firmsError.message);
@@ -90,6 +90,7 @@ export async function PATCH(request: NextRequest) {
   const updates: Record<string, string> = {};
   if ((body.name as string)?.trim()) updates.name = (body.name as string).trim();
   if ((body.slug as string)?.trim()) updates.slug = (body.slug as string).trim();
+  if (typeof body.logo_url === "string") updates.logo_url = body.logo_url;
 
   if (Object.keys(updates).length === 0) return badRequest("Nothing to update");
 
@@ -97,7 +98,7 @@ export async function PATCH(request: NextRequest) {
     .from("firms")
     .update(updates)
     .eq("id", firmId)
-    .select("id, name, slug, created_at")
+    .select("id, name, slug, logo_url, created_at")
     .single();
 
   if (error) return err(error.message);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   Box,
   Typography,
@@ -16,7 +16,7 @@ import {
   TextField,
   Alert,
 } from "@mui/material";
-import { Building2, Users, Plus, ArrowRight } from "lucide-react";
+import { Building2, Users, Plus, ArrowRight, ImagePlus, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 
@@ -24,6 +24,7 @@ type Firm = {
   id: string;
   name: string;
   slug: string;
+  logo_url?: string | null;
   created_at: string;
   userCount: number;
 };
@@ -42,6 +43,9 @@ export default function SuperAdminOverview() {
   const [firmSlug, setFirmSlug] = useState("");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const logoInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
 
   const loadFirms = useCallback(async () => {
@@ -66,6 +70,27 @@ export default function SuperAdminOverview() {
     );
   }
 
+  function handleLogoSelect(file: File) {
+    setLogoFile(file);
+    const reader = new FileReader();
+    reader.onload = (e) => setLogoPreview(e.target?.result as string);
+    reader.readAsDataURL(file);
+  }
+
+  function clearLogo() {
+    setLogoFile(null);
+    setLogoPreview(null);
+    if (logoInputRef.current) logoInputRef.current.value = "";
+  }
+
+  function closeDialog() {
+    setDialogOpen(false);
+    setCreateError("");
+    setFirmName("");
+    setFirmSlug("");
+    clearLogo();
+  }
+
   async function handleCreateFirm() {
     if (!firmName.trim() || !firmSlug.trim()) {
       setCreateError("Both name and slug are required.");
@@ -75,27 +100,54 @@ export default function SuperAdminOverview() {
     setCreateError("");
 
     const token = await getToken();
+
+    // 1. Create the firm
     const res = await fetch("/api/super-admin/firms", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({ name: firmName.trim(), slug: firmSlug.trim() }),
     });
 
     const json = await res.json();
-    setCreating(false);
-
     if (!res.ok) {
       setCreateError(json.error || "Failed to create firm.");
+      setCreating(false);
       return;
     }
 
-    setDialogOpen(false);
-    setFirmName("");
-    setFirmSlug("");
-    router.push(`/super-admin/firms/${json.data.id}`);
+    const firmId: string = json.data.id;
+
+    // 2. Upload logo if provided
+    if (logoFile) {
+      const ext = logoFile.name.split(".").pop() ?? "png";
+      const path = `${firmId}/${Date.now()}.${ext}`;
+      const supabase = createClient();
+
+      const { error: uploadError } = await supabase.storage
+        .from("firm-logos")
+        .upload(path, logoFile, { upsert: true, contentType: logoFile.type });
+
+      if (uploadError) {
+        // Firm was created — warn but still navigate
+        setCreateError(`Firm created, but logo upload failed: ${uploadError.message}`);
+        setCreating(false);
+        setDialogOpen(false);
+        router.push(`/super-admin/firms/${firmId}`);
+        return;
+      }
+
+      const { data: { publicUrl } } = supabase.storage.from("firm-logos").getPublicUrl(path);
+
+      await fetch(`/api/super-admin/firms?firmId=${firmId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ logo_url: publicUrl }),
+      });
+    }
+
+    setCreating(false);
+    closeDialog();
+    router.push(`/super-admin/firms/${firmId}`);
   }
 
   const totalUsers = firms.reduce((sum, f) => sum + f.userCount, 0);
@@ -191,9 +243,18 @@ export default function SuperAdminOverview() {
             >
               <CardContent sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", py: "14px !important" }}>
                 <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-                  <Box sx={{ bgcolor: "#F0FDF4", p: 1.25, borderRadius: 1.5 }}>
-                    <Building2 size={18} color="#395B45" />
-                  </Box>
+                  {firm.logo_url ? (
+                    <Box
+                      component="img"
+                      src={firm.logo_url}
+                      alt={firm.name}
+                      sx={{ height: 36, width: 36, objectFit: "contain", borderRadius: 1, border: "1px solid #E5E7EB", p: 0.25, bgcolor: "#fff" }}
+                    />
+                  ) : (
+                    <Box sx={{ bgcolor: "#F0FDF4", p: 1.25, borderRadius: 1.5 }}>
+                      <Building2 size={18} color="#395B45" />
+                    </Box>
+                  )}
                   <Box>
                     <Typography variant="subtitle2" sx={{ fontWeight: 600, color: "#111827" }}>
                       {firm.name}
@@ -218,7 +279,7 @@ export default function SuperAdminOverview() {
       )}
 
       {/* Create Firm Dialog */}
-      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog open={dialogOpen} onClose={closeDialog} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ fontWeight: 600 }}>Create New Firm</DialogTitle>
         <DialogContent sx={{ pt: "16px !important" }}>
           {createError && <Alert severity="error" sx={{ mb: 2 }}>{createError}</Alert>}
@@ -240,13 +301,56 @@ export default function SuperAdminOverview() {
               placeholder="e.g. smith-partners"
               helperText="Unique identifier — auto-generated, but editable"
             />
+
+            {/* Logo upload */}
+            <Box>
+              <Typography variant="body2" sx={{ color: "#374151", fontWeight: 500, mb: 1 }}>
+                Firm Logo <Typography component="span" variant="caption" sx={{ color: "#9CA3AF" }}>(optional)</Typography>
+              </Typography>
+              <input
+                ref={logoInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                style={{ display: "none" }}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleLogoSelect(file);
+                }}
+              />
+              {logoPreview ? (
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, p: 1.5, border: "1px solid #E5E7EB", borderRadius: 1.5 }}>
+                  <Box
+                    component="img"
+                    src={logoPreview}
+                    alt="Logo preview"
+                    sx={{ height: 48, maxWidth: 100, objectFit: "contain", borderRadius: 1 }}
+                  />
+                  <Typography variant="caption" sx={{ color: "#6B7280", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {logoFile?.name}
+                  </Typography>
+                  <Button
+                    size="small"
+                    onClick={clearLogo}
+                    sx={{ minWidth: 0, p: 0.5, color: "#9CA3AF", "&:hover": { color: "#DC2626" } }}
+                  >
+                    <X size={16} />
+                  </Button>
+                </Box>
+              ) : (
+                <Button
+                  variant="outlined"
+                  startIcon={<ImagePlus size={16} />}
+                  onClick={() => logoInputRef.current?.click()}
+                  sx={{ borderColor: "#D1D5DB", color: "#374151", textTransform: "none", fontWeight: 500 }}
+                >
+                  Choose Logo Image
+                </Button>
+              )}
+            </Box>
           </Box>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 3 }}>
-          <Button
-            onClick={() => { setDialogOpen(false); setCreateError(""); setFirmName(""); setFirmSlug(""); }}
-            disabled={creating}
-          >
+          <Button onClick={closeDialog} disabled={creating}>
             Cancel
           </Button>
           <Button
@@ -255,7 +359,7 @@ export default function SuperAdminOverview() {
             disabled={creating || !firmName.trim() || !firmSlug.trim()}
             sx={{ bgcolor: "#395B45", "&:hover": { bgcolor: "#2D4A38" } }}
           >
-            {creating ? "Creating…" : "Create Firm"}
+            {creating ? (logoFile ? "Creating & uploading…" : "Creating…") : "Create Firm"}
           </Button>
         </DialogActions>
       </Dialog>

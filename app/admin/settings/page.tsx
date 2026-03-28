@@ -55,8 +55,8 @@ export default function AdminSettingsPage() {
     const json = await res.json();
     if (res.ok) {
       setFirm(json.data);
-      setEditName(json.data.name);
-      setEditSlug(json.data.slug);
+      setEditName(json.data.name ?? "");
+      setEditSlug(json.data.slug ?? "");
     }
     setLoading(false);
   }, []);
@@ -100,7 +100,6 @@ export default function AdminSettingsPage() {
 
     if (!res.ok) { setDeleteError(json.error || "Failed to delete firm."); return; }
 
-    // Firm deleted — sign out and redirect
     const supabase = createClient();
     await supabase.auth.signOut();
     router.push("/login");

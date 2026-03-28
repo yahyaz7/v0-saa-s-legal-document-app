@@ -11,6 +11,7 @@ import {
   StepLabel,
   TextField,
   FormControl,
+  InputLabel,
   Select,
   MenuItem,
   Table,
@@ -45,9 +46,18 @@ interface DetectedField {
   field_label: string;
   field_type: string;
   is_required: boolean;
-  field_options: string[];
+  /** For dropdown: string[]. For repeater: RepeaterSubFieldConfig[]. */
+  field_options: any[];
   supports_phrase_bank: boolean;
   section_heading: string;
+}
+
+/** Sub-field definition stored in field_options for repeater type fields. */
+interface RepeaterSubFieldConfig {
+  name: string;
+  label: string;
+  type: "text" | "dropdown";
+  options?: string[];
 }
 
 const fieldTypeOptions = [
@@ -56,6 +66,7 @@ const fieldTypeOptions = [
   { value: "date", label: "Date" },
   { value: "dropdown", label: "Dropdown" },
   { value: "checkbox", label: "Checkbox" },
+  { value: "repeater", label: "Repeater (Table Rows)" },
 ];
 
 const steps = ["Upload DOCX", "Field Configuration", "Publish Template"];
@@ -190,7 +201,10 @@ function ManageTemplateContent() {
       createdTemplateId = null; // no longer needs rollback
 
       // 3. Map detected items (headings + placeholders) to initial field objects
-      type DetectedItem = { type: "heading" | "placeholder"; value: string };
+      type DetectedItem =
+        | { type: "heading"; value: string }
+        | { type: "placeholder"; value: string }
+        | { type: "repeater"; value: string; subFields: string[] };
       const { items: detectedItems, suggested_heading } = detectData.data as {
         items: DetectedItem[];
         suggested_heading: string | null;
@@ -201,6 +215,26 @@ function ManageTemplateContent() {
       for (const item of detectedItems) {
         if (item.type === "heading") {
           currentHeading = item.value;
+        } else if (item.type === "repeater") {
+          // Auto-detected {#loopName} — pre-populate sub-fields from the detected variable names
+          const subFieldConfigs: RepeaterSubFieldConfig[] = (item.subFields ?? []).map(
+            (sf: string) => ({
+              name: sf,
+              label: sf.split("_").map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(" "),
+              type: "text" as const,
+              options: [],
+            })
+          );
+          initialFields.push({
+            id: crypto.randomUUID(),
+            field_name: item.value,
+            field_label: item.value.split("_").map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(" "),
+            field_type: "repeater",
+            is_required: false,
+            field_options: subFieldConfigs,
+            supports_phrase_bank: false,
+            section_heading: currentHeading,
+          });
         } else {
           initialFields.push({
             id: crypto.randomUUID(),
@@ -236,7 +270,94 @@ function ManageTemplateContent() {
   };
 
   const handleOptionsChange = (id: string, value: string) => {
+    // Only apply comma-split for dropdown fields; repeater config is handled separately
     handleFieldChange(id, "field_options", value.split(","));
+  };
+
+  /** Add a new sub-field column to a repeater field. */
+  const handleAddSubField = (id: string) => {
+    setFields((prev) =>
+      prev.map((f) => {
+        if (f.id !== id) return f;
+        const existing: RepeaterSubFieldConfig[] = Array.isArray(f.field_options)
+          ? (f.field_options as RepeaterSubFieldConfig[])
+          : [];
+        const n = existing.length + 1;
+        return {
+          ...f,
+          field_options: [
+            ...existing,
+            { name: `col_${n}`, label: `Column ${n}`, type: "text" as const, options: [] },
+          ],
+        };
+      })
+    );
+  };
+
+  /** Remove a sub-field column from a repeater field. */
+  const handleRemoveSubField = (fieldId: string, colIndex: number) => {
+    setFields((prev) =>
+      prev.map((f) => {
+        if (f.id !== fieldId) return f;
+        const existing: RepeaterSubFieldConfig[] = Array.isArray(f.field_options)
+          ? (f.field_options as RepeaterSubFieldConfig[])
+          : [];
+        return { ...f, field_options: existing.filter((_, i) => i !== colIndex) };
+      })
+    );
+  };
+
+  /** Update a specific sub-field property inside a repeater field. */
+  const handleSubFieldChange = (
+    fieldId: string,
+    colIndex: number,
+    prop: keyof RepeaterSubFieldConfig,
+    value: string
+  ) => {
+    setFields((prev) =>
+      prev.map((f) => {
+        if (f.id !== fieldId) return f;
+        const updated: RepeaterSubFieldConfig[] = (f.field_options as RepeaterSubFieldConfig[]).map(
+          (sf, i) => (i === colIndex ? { ...sf, [prop]: value } : sf)
+        );
+        return { ...f, field_options: updated };
+      })
+    );
+  };
+
+  /**
+   * Store the raw options string while the user is typing — no splitting.
+   * We keep the intermediate string in _optionsRaw so trailing commas work.
+   * On blur we parse it into the final string[].
+   */
+  const handleSubFieldOptionsChange = (fieldId: string, colIndex: number, raw: string) => {
+    setFields((prev) =>
+      prev.map((f) => {
+        if (f.id !== fieldId) return f;
+        const updated = (f.field_options as (RepeaterSubFieldConfig & { _optionsRaw?: string })[]).map(
+          (sf, i) => (i === colIndex ? { ...sf, _optionsRaw: raw } : sf)
+        );
+        return { ...f, field_options: updated };
+      })
+    );
+  };
+
+  /** On blur: parse raw string into the cleaned string[] and clear _optionsRaw. */
+  const handleSubFieldOptionsBlur = (fieldId: string, colIndex: number, raw: string) => {
+    const parsed = raw.split(",").map((s) => s.trim()).filter(Boolean);
+    setFields((prev) =>
+      prev.map((f) => {
+        if (f.id !== fieldId) return f;
+        const updated = (f.field_options as (RepeaterSubFieldConfig & { _optionsRaw?: string })[]).map(
+          (sf, i) => {
+            if (i !== colIndex) return sf;
+            const { _optionsRaw, ...clean } = sf as any;
+            return { ...clean, options: parsed };
+          }
+        );
+        return { ...f, field_options: updated };
+      })
+    );
   };
 
   const handleRemoveField = (id: string) => {
@@ -269,12 +390,25 @@ function ManageTemplateContent() {
     setLoading(true);
     setError(null);
     try {
-      const cleanedFields = fields.map((f) => ({
-        ...f,
-        field_label: f.field_label.trim(),
-        field_name: f.field_name.trim(),
-        field_options: f.field_options.map((o) => o.trim()).filter((o) => o !== ""),
-      }));
+      const cleanedFields = fields.map((f) => {
+        if (f.field_type === "repeater") {
+          // Repeater: field_options is an array of RepeaterSubFieldConfig objects — pass as-is
+          return {
+            ...f,
+            field_label: f.field_label.trim(),
+            field_name: f.field_name.trim(),
+            field_options: f.field_options, // already an array of objects
+          };
+        }
+        return {
+          ...f,
+          field_label: f.field_label.trim(),
+          field_name: f.field_name.trim(),
+          field_options: (f.field_options as string[])
+            .map((o) => String(o).trim())
+            .filter((o) => o !== ""),
+        };
+      });
 
       const res = await fetch(`/api/templates/${templateId}/fields/setup`, {
         method: "POST",
@@ -507,19 +641,105 @@ function ManageTemplateContent() {
                           </Select>
                         </FormControl>
                       </TableCell>
-                      <TableCell sx={{ minWidth: 200 }}>
+                      <TableCell sx={{ minWidth: 260 }}>
                         {field.field_type === "dropdown" ? (
                           <TextField
                             size="small"
                             fullWidth
                             placeholder="Option 1, Option 2, ..."
-                            value={field.field_options.join(",")}
+                            value={
+                              Array.isArray(field.field_options) &&
+                              (field.field_options.length === 0 || typeof (field.field_options as any[])[0] === "string")
+                                ? (field.field_options as string[]).join(",")
+                                : ""
+                            }
                             onChange={(e) => handleOptionsChange(field.id, e.target.value)}
                           />
+                        ) : field.field_type === "repeater" ? (
+                          <Box>
+                            {(field.field_options as RepeaterSubFieldConfig[]).map((sf, colIdx) => (
+                              <Box
+                                key={colIdx}
+                                sx={{
+                                  display: "flex",
+                                  alignItems: "flex-end",
+                                  gap: 0.5,
+                                  mb: 1,
+                                  flexWrap: "wrap",
+                                  p: 0.75,
+                                  border: "1px solid #E5E7EB",
+                                  borderRadius: 1,
+                                  bgcolor: "#F9FAFB",
+                                }}
+                              >
+                                <TextField
+                                  size="small"
+                                  placeholder="key"
+                                  label="Key"
+                                  value={sf.name}
+                                  onChange={(e) => handleSubFieldChange(field.id, colIdx, "name", e.target.value)}
+                                  sx={{ width: 80, "& .MuiInputBase-input": { fontSize: "0.72rem" } }}
+                                />
+                                <TextField
+                                  size="small"
+                                  placeholder="Label"
+                                  label="Label"
+                                  value={sf.label}
+                                  onChange={(e) => handleSubFieldChange(field.id, colIdx, "label", e.target.value)}
+                                  sx={{ width: 100, "& .MuiInputBase-input": { fontSize: "0.72rem" } }}
+                                />
+                                <FormControl size="small" sx={{ width: 88 }}>
+                                  <InputLabel sx={{ fontSize: "0.72rem" }}>Type</InputLabel>
+                                  <Select
+                                    value={sf.type}
+                                    label="Type"
+                                    onChange={(e) => handleSubFieldChange(field.id, colIdx, "type", e.target.value)}
+                                    sx={{ fontSize: "0.72rem" }}
+                                  >
+                                    <MenuItem value="text" sx={{ fontSize: "0.72rem" }}>Text</MenuItem>
+                                    <MenuItem value="dropdown" sx={{ fontSize: "0.72rem" }}>Dropdown</MenuItem>
+                                  </Select>
+                                </FormControl>
+                                                                {sf.type === "dropdown" && (
+                                  <TextField
+                                    size="small"
+                                    placeholder="A, B, C"
+                                    label="Options"
+                                    value={
+                                      (sf as any)._optionsRaw !== undefined
+                                        ? (sf as any)._optionsRaw
+                                        : (sf.options ?? []).join(", ")
+                                    }
+                                    onChange={(e) =>
+                                      handleSubFieldOptionsChange(field.id, colIdx, e.target.value)
+                                    }
+                                    onBlur={(e) =>
+                                      handleSubFieldOptionsBlur(field.id, colIdx, e.target.value)
+                                    }
+                                    helperText="Comma-separated"
+                                    sx={{ width: 160, "& .MuiInputBase-input": { fontSize: "0.72rem" } }}
+                                  />
+                                )}
+
+                                <IconButton size="small" onClick={() => handleRemoveSubField(field.id, colIdx)} sx={{ color: "#EF4444" }}>
+                                  <Trash2 size={13} />
+                                </IconButton>
+                              </Box>
+                            ))}
+                            <Button
+                              size="small"
+                              startIcon={<Plus size={11} />}
+                              onClick={() => handleAddSubField(field.id)}
+                              sx={{ textTransform: "none", fontSize: "0.72rem", color: "#395B45", py: 0.25 }}
+                            >
+                              Add column
+                            </Button>
+                          </Box>
                         ) : (
                           <Typography variant="caption" sx={{ color: "#9CA3AF" }}>No extra config</Typography>
                         )}
                       </TableCell>
+
                       <TableCell align="center">
                         <input
                           type="checkbox"

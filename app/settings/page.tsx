@@ -1,448 +1,286 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, Suspense } from "react";
 import {
   Box,
   Typography,
-  Paper,
-  Tabs,
-  Tab,
+  Card,
+  CardContent,
   TextField,
-  Grid,
   Button,
-  Switch,
-  FormControlLabel,
+  Alert,
   Divider,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Chip,
-  IconButton,
   Avatar,
+  Skeleton,
+  CircularProgress,
 } from "@mui/material";
-import { Building2, Users, Sparkles, Database, Plus, Edit2, Trash2, User as UserIcon } from "lucide-react";
+import { User as UserIcon, Lock, Save } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { useSearchParams } from "next/navigation";
-import { useEffect, Suspense } from "react";
-
-interface TabPanelProps {
-  children: React.ReactNode;
-  value: number;
-  index: number;
-}
-
-function TabPanel({ children, value, index }: TabPanelProps) {
-  return (
-    <Box role="tabpanel" hidden={value !== index} sx={{ py: 3 }}>
-      {value === index && children}
-    </Box>
-  );
-}
-
-interface User {
-  id: string;
-  name: string;
-  email: string;
-  role: string;
-  status: "Active" | "Invited";
-}
-
-const mockUsers: User[] = [
-  { id: "1", name: "John Doe", email: "john.doe@lawfirm.co.uk", role: "Admin", status: "Active" },
-  { id: "2", name: "Sarah Smith", email: "sarah.smith@lawfirm.co.uk", role: "Solicitor", status: "Active" },
-  { id: "3", name: "Michael Brown", email: "m.brown@lawfirm.co.uk", role: "Paralegal", status: "Active" },
-  { id: "4", name: "Emily Wilson", email: "e.wilson@lawfirm.co.uk", role: "Solicitor", status: "Invited" },
-];
 
 function SettingsContent() {
-  const searchParams = useSearchParams();
-  const initialTab = searchParams.get("tab") === "profile" ? 0 : 1;
-  
-  const [tabValue, setTabValue] = useState(initialTab);
-  const [profileLoading, setProfileLoading] = useState(false);
-  const [saveLoading, setSaveLoading] = useState(false);
-  const [userProfile, setUserProfile] = useState({ id: "", name: "", email: "" });
-  
-  const [firmProfile, setFirmProfile] = useState({
-    firmName: "Smith & Partners LLP",
-    address: "123 Legal Lane, London, EC1A 1BB",
-    phone: "+44 20 7123 4567",
-    email: "info@smithpartners.co.uk",
-    sraNumber: "123456",
-  });
-  const [aiSettings, setAiSettings] = useState({
-    enableExtraction: true,
-    enablePhrases: true,
-    storeSourceText: false,
-  });
+  const [loading, setLoading] = useState(true);
+  const [userId, setUserId] = useState("");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileSuccess, setProfileSuccess] = useState("");
+  const [profileError, setProfileError] = useState("");
+
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const [passwordSuccess, setPasswordSuccess] = useState("");
+  const [passwordError, setPasswordError] = useState("");
 
   useEffect(() => {
-    async function loadProfile() {
-      setProfileLoading(true);
+    async function load() {
       const supabase = createClient();
       const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const { data } = await supabase.from("users").select("id, name, email").eq("id", user.id).single();
-        if (data) {
-          setUserProfile(data);
-        } else {
-          setUserProfile({ id: user.id, name: user.user_metadata?.full_name || "", email: user.email || "" });
-        }
-      }
-      setProfileLoading(false);
+      if (!user) { setLoading(false); return; }
+
+      setUserId(user.id);
+      setEmail(user.email ?? "");
+
+      // Prefer users table full_name, fall back to auth metadata
+      const { data } = await supabase
+        .from("users")
+        .select("full_name")
+        .eq("id", user.id)
+        .single();
+
+      setName(data?.full_name ?? user.user_metadata?.full_name ?? "");
+      setLoading(false);
     }
-    loadProfile();
+    load();
   }, []);
 
-  const handleTabChange = (_: React.SyntheticEvent, newValue: number) => {
-    setTabValue(newValue);
-  };
+  async function handleSaveProfile() {
+    if (!userId) return;
+    setProfileSaving(true);
+    setProfileError("");
+    setProfileSuccess("");
 
-  const handleSaveProfile = async () => {
-    if (!userProfile.id) return;
-    setSaveLoading(true);
     const supabase = createClient();
-    await supabase.from("users").update({ name: userProfile.name }).eq("id", userProfile.id);
-    await supabase.auth.updateUser({ data: { full_name: userProfile.name } });
-    setSaveLoading(false);
-  };
+    const { error: dbErr } = await supabase
+      .from("users")
+      .update({ full_name: name.trim() })
+      .eq("id", userId);
+
+    await supabase.auth.updateUser({ data: { full_name: name.trim() } });
+
+    setProfileSaving(false);
+    if (dbErr) {
+      setProfileError("Failed to save. Please try again.");
+    } else {
+      setProfileSuccess("Profile updated successfully.");
+    }
+  }
+
+  async function handleChangePassword() {
+    setPasswordError("");
+    setPasswordSuccess("");
+
+    if (!newPassword.trim()) { setPasswordError("New password is required."); return; }
+    if (newPassword.length < 8) { setPasswordError("Password must be at least 8 characters."); return; }
+    if (newPassword !== confirmPassword) { setPasswordError("Passwords do not match."); return; }
+
+    setPasswordSaving(true);
+    const supabase = createClient();
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    setPasswordSaving(false);
+
+    if (error) {
+      setPasswordError(error.message);
+    } else {
+      setPasswordSuccess("Password updated successfully.");
+      setNewPassword("");
+      setConfirmPassword("");
+    }
+  }
+
+  const initials = name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0].toUpperCase())
+    .join("");
 
   return (
-    <Box>
-      {/* Page Header */}
+    <Box sx={{ maxWidth: 1100 }}>
+      {/* Header */}
       <Box sx={{ mb: 4 }}>
-        <Typography variant="h4" sx={{ fontWeight: 600, mb: 1, color: "#1A1A1A" }}>
-          Settings
+        <Typography variant="h5" sx={{ fontWeight: 700, color: "#111827" }}>
+          My Profile
         </Typography>
-        <Typography variant="body1" sx={{ color: "#666666" }}>
-          Manage your firm profile and application settings.
+        <Typography variant="body2" sx={{ color: "#6B7280", mt: 0.5 }}>
+          Manage your personal information and password
         </Typography>
       </Box>
 
-      {/* Settings Tabs */}
-      <Paper sx={{ overflow: "hidden" }}>
-        <Tabs
-          value={tabValue}
-          onChange={handleTabChange}
-          sx={{
-            borderBottom: "1px solid #E0E0E0",
-            px: 2,
-            "& .MuiTab-root": {
-              textTransform: "none",
-              fontWeight: 500,
-              minHeight: 56,
-            },
-          }}
-        >
-          <Tab icon={<UserIcon size={18} />} iconPosition="start" label="My Profile" />
-          <Tab icon={<Building2 size={18} />} iconPosition="start" label="Firm Profile" />
-          <Tab icon={<Users size={18} />} iconPosition="start" label="Users" />
-          <Tab icon={<Sparkles size={18} />} iconPosition="start" label="AI Settings" />
-          <Tab icon={<Database size={18} />} iconPosition="start" label="Data & Backup" />
-        </Tabs>
+      {/* Cards row */}
+      <Box sx={{ display: "flex", gap: 3, alignItems: "flex-start", flexWrap: "wrap" }}>
 
-        {/* My Profile Tab */}
-        <TabPanel value={tabValue} index={0}>
-          <Box sx={{ px: 3, maxWidth: 600 }}>
-            <Typography variant="h6" sx={{ fontWeight: 600, mb: 3 }}>
+      {/* Profile card */}
+      <Card elevation={0} sx={{ border: "1px solid #E5E7EB", borderRadius: 2, flex: "1 1 340px", minWidth: 0 }}>
+        <CardContent sx={{ p: 3 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 2 }}>
+            <Box sx={{ bgcolor: "#F0FDF4", p: 1, borderRadius: 1.5 }}>
+              <UserIcon size={18} color="#395B45" />
+            </Box>
+            <Typography variant="subtitle1" sx={{ fontWeight: 600, color: "#111827" }}>
               Personal Information
             </Typography>
-            <Grid container spacing={3}>
-              <Grid item xs={12}>
+          </Box>
+          <Divider sx={{ mb: 3 }} />
+
+          {/* Avatar */}
+          <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 3 }}>
+            {loading ? (
+              <Skeleton variant="circular" width={56} height={56} />
+            ) : (
+              <Avatar
+                sx={{
+                  width: 56, height: 56,
+                  bgcolor: "#395B45",
+                  fontSize: 20,
+                  fontWeight: 700,
+                }}
+              >
+                {initials || <UserIcon size={24} />}
+              </Avatar>
+            )}
+            <Box>
+              {loading ? (
+                <>
+                  <Skeleton width={140} height={22} />
+                  <Skeleton width={200} height={18} sx={{ mt: 0.5 }} />
+                </>
+              ) : (
+                <>
+                  <Typography variant="body1" sx={{ fontWeight: 600, color: "#111827" }}>
+                    {name || "—"}
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: "#6B7280" }}>
+                    {email}
+                  </Typography>
+                </>
+              )}
+            </Box>
+          </Box>
+
+          {profileSuccess && (
+            <Alert severity="success" sx={{ mb: 2 }} onClose={() => setProfileSuccess("")}>
+              {profileSuccess}
+            </Alert>
+          )}
+          {profileError && (
+            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setProfileError("")}>
+              {profileError}
+            </Alert>
+          )}
+
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 2.5 }}>
+            {loading ? (
+              <>
+                <Skeleton variant="rectangular" height={56} sx={{ borderRadius: 1 }} />
+                <Skeleton variant="rectangular" height={56} sx={{ borderRadius: 1 }} />
+              </>
+            ) : (
+              <>
                 <TextField
-                  fullWidth
                   label="Full Name"
-                  value={userProfile.name}
-                  onChange={(e) => setUserProfile({ ...userProfile, name: e.target.value })}
-                  disabled={profileLoading}
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <TextField
                   fullWidth
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                />
+                <TextField
                   label="Email Address"
-                  value={userProfile.email}
+                  fullWidth
+                  value={email}
                   disabled
-                  helperText="Your email address cannot be changed."
+                  helperText="Your email address cannot be changed here."
                 />
-              </Grid>
-              <Grid item xs={12}>
-                <Button 
-                  variant="contained" 
-                  color="primary"
-                  onClick={handleSaveProfile}
-                  disabled={saveLoading || profileLoading}
-                >
-                  {saveLoading ? "Saving..." : "Save Profile"}
-                </Button>
-              </Grid>
-            </Grid>
-          </Box>
-        </TabPanel>
-
-        {/* Firm Profile Tab */}
-        <TabPanel value={tabValue} index={1}>
-          <Box sx={{ px: 3, maxWidth: 600 }}>
-            <Grid container spacing={3}>
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  label="Firm Name"
-                  value={firmProfile.firmName}
-                  onChange={(e) => setFirmProfile({ ...firmProfile, firmName: e.target.value })}
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  label="Address"
-                  multiline
-                  rows={2}
-                  value={firmProfile.address}
-                  onChange={(e) => setFirmProfile({ ...firmProfile, address: e.target.value })}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Phone"
-                  value={firmProfile.phone}
-                  onChange={(e) => setFirmProfile({ ...firmProfile, phone: e.target.value })}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Email"
-                  value={firmProfile.email}
-                  onChange={(e) => setFirmProfile({ ...firmProfile, email: e.target.value })}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="SRA Number"
-                  value={firmProfile.sraNumber}
-                  onChange={(e) => setFirmProfile({ ...firmProfile, sraNumber: e.target.value })}
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <Button variant="contained" color="primary">
-                  Save Changes
-                </Button>
-              </Grid>
-            </Grid>
-          </Box>
-        </TabPanel>
-
-        {/* Users Tab */}
-        <TabPanel value={tabValue} index={2}>
-          <Box sx={{ px: 3 }}>
-            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3 }}>
-              <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                Team Members
-              </Typography>
-              <Button variant="contained" color="primary" startIcon={<Plus size={16} />}>
-                Invite User
+              </>
+            )}
+            <Box>
+              <Button
+                variant="contained"
+                startIcon={profileSaving ? <CircularProgress size={14} color="inherit" /> : <Save size={16} />}
+                onClick={handleSaveProfile}
+                disabled={profileSaving || loading || !name.trim()}
+                sx={{ bgcolor: "#395B45", "&:hover": { bgcolor: "#2D4A38" } }}
+              >
+                {profileSaving ? "Saving…" : "Save Changes"}
               </Button>
             </Box>
-            <TableContainer>
-              <Table>
-                <TableHead>
-                  <TableRow sx={{ backgroundColor: "#F9F9F9" }}>
-                    <TableCell sx={{ fontWeight: 600, color: "#666666" }}>User</TableCell>
-                    <TableCell sx={{ fontWeight: 600, color: "#666666" }}>Role</TableCell>
-                    <TableCell sx={{ fontWeight: 600, color: "#666666" }}>Status</TableCell>
-                    <TableCell sx={{ fontWeight: 600, color: "#666666" }} align="right">
-                      Actions
-                    </TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {mockUsers.map((user) => (
-                    <TableRow key={user.id} sx={{ "&:hover": { backgroundColor: "#FAFAFA" } }}>
-                      <TableCell>
-                        <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-                          <Avatar sx={{ width: 36, height: 36, backgroundColor: "#395B45", fontSize: 14 }}>
-                            {user.name.split(" ").map((n) => n[0]).join("")}
-                          </Avatar>
-                          <Box>
-                            <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                              {user.name}
-                            </Typography>
-                            <Typography variant="caption" sx={{ color: "#666666" }}>
-                              {user.email}
-                            </Typography>
-                          </Box>
-                        </Box>
-                      </TableCell>
-                      <TableCell>{user.role}</TableCell>
-                      <TableCell>
-                        <Chip
-                          label={user.status}
-                          size="small"
-                          color={user.status === "Active" ? "success" : "default"}
-                          sx={{ fontSize: 12 }}
-                        />
-                      </TableCell>
-                      <TableCell align="right">
-                        <IconButton size="small" sx={{ color: "#666666" }}>
-                          <Edit2 size={16} />
-                        </IconButton>
-                        <IconButton size="small" sx={{ color: "#D32F2F" }}>
-                          <Trash2 size={16} />
-                        </IconButton>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
           </Box>
-        </TabPanel>
+        </CardContent>
+      </Card>
 
-        {/* AI Settings Tab */}
-        <TabPanel value={tabValue} index={3}>
-          <Box sx={{ px: 3, maxWidth: 600 }}>
-            <Typography variant="h6" sx={{ fontWeight: 600, mb: 3 }}>
-              AI Features
+      {/* Change password card */}
+      <Card elevation={0} sx={{ border: "1px solid #E5E7EB", borderRadius: 2, flex: "1 1 300px", minWidth: 0 }}>
+        <CardContent sx={{ p: 3 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 2 }}>
+            <Box sx={{ bgcolor: "#F0FDF4", p: 1, borderRadius: 1.5 }}>
+              <Lock size={18} color="#395B45" />
+            </Box>
+            <Typography variant="subtitle1" sx={{ fontWeight: 600, color: "#111827" }}>
+              Change Password
             </Typography>
-            <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-              <Paper variant="outlined" sx={{ p: 2 }}>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={aiSettings.enableExtraction}
-                      onChange={(e) => setAiSettings({ ...aiSettings, enableExtraction: e.target.checked })}
-                      color="primary"
-                    />
-                  }
-                  label={
-                    <Box>
-                      <Typography variant="body1" sx={{ fontWeight: 500 }}>
-                        Enable AI Extraction
-                      </Typography>
-                      <Typography variant="body2" sx={{ color: "#666666" }}>
-                        Automatically extract fields from pasted source text.
-                      </Typography>
-                    </Box>
-                  }
-                  sx={{ alignItems: "flex-start", m: 0 }}
-                />
-              </Paper>
+          </Box>
+          <Divider sx={{ mb: 3 }} />
 
-              <Paper variant="outlined" sx={{ p: 2 }}>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={aiSettings.enablePhrases}
-                      onChange={(e) => setAiSettings({ ...aiSettings, enablePhrases: e.target.checked })}
-                      color="primary"
-                    />
-                  }
-                  label={
-                    <Box>
-                      <Typography variant="body1" sx={{ fontWeight: 500 }}>
-                        Enable Phrase Suggestions
-                      </Typography>
-                      <Typography variant="body2" sx={{ color: "#666666" }}>
-                        Show AI-powered phrase suggestions while drafting documents.
-                      </Typography>
-                    </Box>
-                  }
-                  sx={{ alignItems: "flex-start", m: 0 }}
-                />
-              </Paper>
+          {passwordSuccess && (
+            <Alert severity="success" sx={{ mb: 2 }} onClose={() => setPasswordSuccess("")}>
+              {passwordSuccess}
+            </Alert>
+          )}
+          {passwordError && (
+            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setPasswordError("")}>
+              {passwordError}
+            </Alert>
+          )}
 
-              <Paper variant="outlined" sx={{ p: 2 }}>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={aiSettings.storeSourceText}
-                      onChange={(e) => setAiSettings({ ...aiSettings, storeSourceText: e.target.checked })}
-                      color="primary"
-                    />
-                  }
-                  label={
-                    <Box>
-                      <Typography variant="body1" sx={{ fontWeight: 500 }}>
-                        Store Source Text
-                      </Typography>
-                      <Typography variant="body2" sx={{ color: "#666666" }}>
-                        Keep copies of pasted source text for reference.
-                      </Typography>
-                    </Box>
-                  }
-                  sx={{ alignItems: "flex-start", m: 0 }}
-                />
-              </Paper>
-            </Box>
-
-            <Box sx={{ mt: 3 }}>
-              <Button variant="contained" color="primary">
-                Save Settings
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 2.5 }}>
+            <TextField
+              label="New Password"
+              type="password"
+              fullWidth
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              helperText="Minimum 8 characters"
+            />
+            <TextField
+              label="Confirm New Password"
+              type="password"
+              fullWidth
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+            />
+            <Box>
+              <Button
+                variant="outlined"
+                startIcon={passwordSaving ? <CircularProgress size={14} color="inherit" /> : <Lock size={16} />}
+                onClick={handleChangePassword}
+                disabled={passwordSaving || !newPassword || !confirmPassword}
+                sx={{ borderColor: "#395B45", color: "#395B45", "&:hover": { borderColor: "#2D4A38", bgcolor: "rgba(57,91,69,0.04)" } }}
+              >
+                {passwordSaving ? "Updating…" : "Update Password"}
               </Button>
             </Box>
           </Box>
-        </TabPanel>
+        </CardContent>
+      </Card>
 
-        {/* Data & Backup Tab */}
-        <TabPanel value={tabValue} index={4}>
-          <Box sx={{ px: 3, maxWidth: 600 }}>
-            <Typography variant="h6" sx={{ fontWeight: 600, mb: 3 }}>
-              Data Management
-            </Typography>
-
-            <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
-              <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
-                Export Data
-              </Typography>
-              <Typography variant="body2" sx={{ color: "#666666", mb: 2 }}>
-                Download a complete backup of all your documents, templates, and client data.
-              </Typography>
-              <Button variant="outlined" color="primary">
-                Export All Data
-              </Button>
-            </Paper>
-
-            <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
-              <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
-                Import Data
-              </Typography>
-              <Typography variant="body2" sx={{ color: "#666666", mb: 2 }}>
-                Restore data from a previous backup file.
-              </Typography>
-              <Button variant="outlined" color="primary">
-                Import Backup
-              </Button>
-            </Paper>
-
-            <Divider sx={{ my: 3 }} />
-
-            <Paper variant="outlined" sx={{ p: 3, borderColor: "#D32F2F" }}>
-              <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1, color: "#D32F2F" }}>
-                Danger Zone
-              </Typography>
-              <Typography variant="body2" sx={{ color: "#666666", mb: 2 }}>
-                Permanently delete all data. This action cannot be undone.
-              </Typography>
-              <Button variant="outlined" color="error">
-                Delete All Data
-              </Button>
-            </Paper>
-          </Box>
-        </TabPanel>
-      </Paper>
+      </Box> {/* end cards row */}
     </Box>
   );
 }
 
 export default function SettingsPage() {
   return (
-    <Suspense fallback={<Box sx={{ p: 4 }}>Loading Settings...</Box>}>
+    <Suspense fallback={<Box sx={{ p: 4 }}><CircularProgress /></Box>}>
       <SettingsContent />
     </Suspense>
   );

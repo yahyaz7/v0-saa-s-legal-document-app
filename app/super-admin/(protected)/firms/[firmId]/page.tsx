@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect, useState, useCallback } from "react";
+import { use, useEffect, useState, useCallback, useRef } from "react";
 import {
   Box,
   Typography,
@@ -39,7 +39,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 
-type Firm = { id: string; name: string; slug: string; created_at: string };
+type Firm = { id: string; name: string; slug: string; logo_url?: string | null; created_at: string };
 
 type FirmUser = {
   id: string;
@@ -94,6 +94,11 @@ export default function FirmDetailPage({
   const [deletingFirm, setDeletingFirm] = useState(false);
   const [deleteFirmError, setDeleteFirmError] = useState("");
   const [confirmFirmName, setConfirmFirmName] = useState("");
+
+  // ── Logo upload ──────────────────────────────────────────────
+  const [logoUploading, setLogoUploading] = useState(false);
+  const [logoError, setLogoError] = useState("");
+  const logoInputRef = useRef<HTMLInputElement>(null);
 
   // ── Banners ──────────────────────────────────────────────────
   const [successMsg, setSuccessMsg] = useState("");
@@ -220,6 +225,41 @@ export default function FirmDetailPage({
     router.push("/super-admin");
   }
 
+  async function handleLogoUpload(file: File) {
+    setLogoUploading(true);
+    setLogoError("");
+
+    const ext = file.name.split(".").pop() ?? "png";
+    const path = `${firmId}/${Date.now()}.${ext}`;
+
+    const supabase = createClient();
+    const { error: uploadError } = await supabase.storage
+      .from("firm-logos")
+      .upload(path, file, { upsert: true, contentType: file.type });
+
+    if (uploadError) {
+      setLogoError(uploadError.message);
+      setLogoUploading(false);
+      return;
+    }
+
+    const { data: { publicUrl } } = supabase.storage.from("firm-logos").getPublicUrl(path);
+
+    const token = await getToken();
+    const res = await fetch(`/api/super-admin/firms?firmId=${firmId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ logo_url: publicUrl }),
+    });
+
+    const json = await res.json();
+    setLogoUploading(false);
+    if (!res.ok) { setLogoError(json.error || "Failed to save logo URL."); return; }
+
+    setFirm((prev) => prev ? { ...prev, logo_url: publicUrl } : prev);
+    setSuccessMsg("Firm logo updated.");
+  }
+
   const roleColor: Record<string, string> = { admin: "#6366F1", staff: "#16A34A" };
   const roleBg: Record<string, string> = { admin: "#EEF2FF", staff: "#F0FDF4" };
 
@@ -286,6 +326,55 @@ export default function FirmDetailPage({
           {successMsg}
         </Alert>
       )}
+
+      {/* ── Firm Logo ────────────────────────────────────────── */}
+      <Card elevation={0} sx={{ border: "1px solid #E5E7EB", borderRadius: 2, mb: 3 }}>
+        <CardContent sx={{ pb: "16px !important" }}>
+          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <Box>
+              <Typography variant="subtitle1" sx={{ fontWeight: 600, color: "#111827" }}>
+                Firm Logo
+              </Typography>
+              <Typography variant="caption" sx={{ color: "#6B7280" }}>
+                Shown in the admin sidebar. PNG or JPG, max 2 MB.
+              </Typography>
+            </Box>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+              {firm?.logo_url && (
+                <Box
+                  component="img"
+                  src={firm.logo_url}
+                  alt="Firm logo"
+                  sx={{ height: 48, maxWidth: 120, objectFit: "contain", borderRadius: 1, border: "1px solid #E5E7EB", p: 0.5 }}
+                />
+              )}
+              <input
+                ref={logoInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                style={{ display: "none" }}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleLogoUpload(file);
+                  e.target.value = "";
+                }}
+              />
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={() => logoInputRef.current?.click()}
+                disabled={logoUploading || loadingFirm}
+                sx={{ borderColor: "#D1D5DB", color: "#374151", textTransform: "none", fontWeight: 500 }}
+              >
+                {logoUploading ? "Uploading…" : firm?.logo_url ? "Replace Logo" : "Upload Logo"}
+              </Button>
+            </Box>
+          </Box>
+          {logoError && (
+            <Alert severity="error" sx={{ mt: 1.5 }} onClose={() => setLogoError("")}>{logoError}</Alert>
+          )}
+        </CardContent>
+      </Card>
 
       {/* ── Users table ──────────────────────────────────────── */}
       <Card elevation={0} sx={{ border: "1px solid #E5E7EB", borderRadius: 2 }}>
