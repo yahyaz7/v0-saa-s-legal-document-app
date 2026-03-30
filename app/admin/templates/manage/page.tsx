@@ -56,7 +56,7 @@ interface DetectedField {
 interface RepeaterSubFieldConfig {
   name: string;
   label: string;
-  type: "text" | "dropdown";
+  type: "text" | "dropdown" | "date" | "checkbox";
   options?: string[];
 }
 
@@ -698,6 +698,8 @@ function ManageTemplateContent() {
                                   >
                                     <MenuItem value="text" sx={{ fontSize: "0.72rem" }}>Text</MenuItem>
                                     <MenuItem value="dropdown" sx={{ fontSize: "0.72rem" }}>Dropdown</MenuItem>
+                                    <MenuItem value="date" sx={{ fontSize: "0.72rem" }}>Date</MenuItem>
+                                    <MenuItem value="checkbox" sx={{ fontSize: "0.72rem" }}>Checkbox</MenuItem>
                                   </Select>
                                 </FormControl>
                                                                 {sf.type === "dropdown" && (

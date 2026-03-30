@@ -87,10 +87,10 @@ export async function PATCH(request: NextRequest) {
   if (!firmId) return badRequest("firmId is required");
 
   const body = await request.json().catch(() => ({}));
-  const updates: Record<string, string> = {};
+  const updates: Record<string, string | null> = {};
   if ((body.name as string)?.trim()) updates.name = (body.name as string).trim();
   if ((body.slug as string)?.trim()) updates.slug = (body.slug as string).trim();
-  if (typeof body.logo_url === "string") updates.logo_url = body.logo_url;
+  if ("logo_url" in body) updates.logo_url = typeof body.logo_url === "string" ? body.logo_url : null;
 
   if (Object.keys(updates).length === 0) return badRequest("Nothing to update");
 

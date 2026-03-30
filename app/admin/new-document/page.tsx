@@ -50,7 +50,9 @@ function applyDraftData(base: FormValues, draft: DraftFormData): FormValues {
 }
 
 function fieldColSpan(f: TemplateFieldDef) {
-  return f.field_type === "textarea" ? { xs: 12 } : { xs: 12, sm: 6 };
+  return f.field_type === "textarea" || f.field_type === "repeater"
+    ? { xs: 12 }
+    : { xs: 12, sm: 6 };
 }
 
 // ── Main content ──────────────────────────────────────────────────────────────
@@ -344,7 +346,7 @@ function AdminDocumentBuilderContent() {
       {fetchError && <Alert severity="error" sx={{ mb: 3 }}>{fetchError}</Alert>}
 
       {!loading && !fetchError && (
-        <Grid container spacing={3}>
+        <Grid container spacing={3} alignItems="flex-start">
           {/* LEFT: Dynamic form */}
           <Grid item xs={12} md={8}>
             <Paper sx={{ p: 3 }}>
@@ -382,9 +384,19 @@ function AdminDocumentBuilderContent() {
             </Paper>
           </Grid>
 
-          {/* RIGHT: Phrase Bank */}
-          <Grid item xs={12} md={4}>
-            <Paper elevation={0} sx={{ border: "1px solid #E5E7EB", borderRadius: 2, overflow: "hidden" }}>
+          {/* RIGHT: Phrase Bank — sticky sidebar */}
+          <Grid
+            item xs={12} md={4}
+            sx={{
+              position: { md: "sticky" },
+              top: { md: 24 },
+              maxHeight: { md: "calc(100vh - 140px)" },
+              overflowY: { md: "auto" },
+              display: "flex",
+              flexDirection: "column",
+            }}
+          >
+            <Paper elevation={0} sx={{ border: "1px solid #E5E7EB", borderRadius: 2, overflow: "hidden", flex: 1, display: "flex", flexDirection: "column" }}>
               <Box sx={{ px: 2, py: 1.5, borderBottom: "1px solid #E5E7EB", bgcolor: "#F9FAFB", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <Box>
                   <Typography variant="subtitle2" sx={{ fontWeight: 700, color: "#111827" }}>Phrase Bank</Typography>
@@ -403,7 +415,7 @@ function AdminDocumentBuilderContent() {
                 </Button>
               </Box>
 
-              <Box sx={{ p: 2 }}>
+              <Box sx={{ p: 2, flex: 1, overflowY: "auto", minHeight: 0 }}>
                 {phraseTargetOptions.length === 0 ? (
                   <Typography variant="body2" sx={{ color: "#9CA3AF", textAlign: "center", py: 4 }}>
                     No fields in this template have phrase bank enabled.
@@ -419,7 +431,7 @@ function AdminDocumentBuilderContent() {
                       </Select>
                     </FormControl>
 
-                    <Box sx={{ maxHeight: 480, overflowY: "auto", mx: -0.5 }}>
+                    <Box sx={{ overflowY: "auto", mx: -0.5 }}>
                       {phraseCategories.length === 0 ? (
                         <Typography variant="body2" sx={{ color: "#9CA3AF", textAlign: "center", py: 4 }}>
                           No phrases yet.
