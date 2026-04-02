@@ -56,10 +56,12 @@ export function StaffShell({ children }: { children: ReactNode }) {
   const [userEmail, setUserEmail] = useState("");
   const [userName, setUserName] = useState("");
   const [userInitials, setUserInitials] = useState("U");
+  const [firmName, setFirmName] = useState<string | null>(null);
+  const [firmLogoUrl, setFirmLogoUrl] = useState<string | null>(null);
 
   useEffect(() => {
     const supabase = createClient();
-    supabase.auth.getUser().then(({ data: { user } }: { data: { user: any } }) => {
+    supabase.auth.getUser().then(async ({ data: { user } }: { data: { user: any } }) => {
       if (!user) return;
       setUserEmail(user.email ?? "");
       const full: string = (user.user_metadata?.full_name as string) || user.email || "";
@@ -69,6 +71,14 @@ export function StaffShell({ children }: { children: ReactNode }) {
         parts.slice(0, 2).map((p) => p[0]?.toUpperCase() ?? "").join("") ||
           (user.email?.[0]?.toUpperCase() ?? "U")
       );
+
+      // Fetch firm name + logo (cookies sent automatically — same-origin)
+      const res = await fetch("/api/firm-info");
+      if (res.ok) {
+        const json = await res.json();
+        if (json.data?.name) setFirmName(json.data.name);
+        if (json.data?.logo_url) setFirmLogoUrl(json.data.logo_url);
+      }
     });
   }, []);
 
@@ -100,18 +110,35 @@ export function StaffShell({ children }: { children: ReactNode }) {
         }}
       >
         {/* Logo */}
-        <Box sx={{ p: 2, borderBottom: "1px solid #E0E0E0", display: "flex", alignItems: "center", gap: 1.5 }}>
-          <Box sx={{ bgcolor: "rgba(57, 91, 69, 0.1)", borderRadius: 1.5, p: 0.75, display: "flex" }}>
-            <Scale size={20} color="#395B45" />
-          </Box>
-          <Box>
-            <Typography sx={{ color: "#395B45", fontWeight: 700, fontSize: "0.95rem", lineHeight: 1.2, letterSpacing: "-0.02em" }}>
-              LegalDocs Pro
-            </Typography>
-            <Typography sx={{ color: "#9CA3AF", fontSize: "0.68rem", fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-              Staff Portal
-            </Typography>
-          </Box>
+        <Box sx={{ p: 2, borderBottom: "1px solid #E0E0E0", display: "flex", alignItems: "center", gap: 1.5, minHeight: 60 }}>
+          {firmName === null ? null : (
+            <>
+              {firmLogoUrl ? (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img
+                  src={firmLogoUrl}
+                  alt={firmName}
+                  style={{ maxHeight: 36, width: 36, objectFit: "contain", display: "block", flexShrink: 0 }}
+                />
+              ) : (
+                <Box sx={{ bgcolor: "rgba(57, 91, 69, 0.1)", borderRadius: 1.5, p: 0.75, display: "flex", flexShrink: 0 }}>
+                  <Scale size={20} color="#395B45" />
+                </Box>
+              )}
+              <Box sx={{ minWidth: 0 }}>
+                <Typography sx={{
+                  color: "#395B45", fontWeight: 700, fontSize: "0.9rem", lineHeight: 1.2,
+                  letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}>
+                  {firmName}
+                </Typography>
+                <Typography sx={{ color: "#9CA3AF", fontSize: "0.68rem", fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                  Staff Portal
+                </Typography>
+              </Box>
+            </>
+          )}
         </Box>
 
         {/* Nav */}

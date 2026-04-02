@@ -31,9 +31,9 @@ import {
   Alert,
   CircularProgress,
 } from "@mui/material";
-import { FileText, Plus, Trash2, Eye, X, CheckCircle2, Pencil, PlayCircle } from "lucide-react";
+import { FileText, Plus, Trash2, Eye, X, CheckCircle2, Pencil, PlayCircle, FilePlus } from "lucide-react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import DynamicFormEngine from "@/components/dynamic-form-engine";
 
 interface Template {
@@ -68,6 +68,7 @@ function AdminTemplatesContent() {
   const [loading, setLoading] = useState(true);
   const searchParams = useSearchParams();
   const success = searchParams.get("success");
+  const router = useRouter();
 
   const [previewOpen, setPreviewOpen] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
@@ -292,8 +293,19 @@ function AdminTemplatesContent() {
                   <TableCell align="right">
                     <Box sx={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 0.5 }}>
                       {template.is_active ? (
-                        /* Published — Preview + Edit + Delete */
+                        /* Published — Use + Preview + Edit + Delete */
                         <>
+                          <Tooltip title="Use template — create a document">
+                            <Button
+                              size="small"
+                              variant="contained"
+                              startIcon={<FilePlus size={13} />}
+                              onClick={() => router.push(`/admin/new-document?template=${template.id}`)}
+                              sx={{ bgcolor: "#395B45", "&:hover": { bgcolor: "#2D4A38" }, textTransform: "none", fontWeight: 600, fontSize: "0.75rem", mr: 0.5 }}
+                            >
+                              Use
+                            </Button>
+                          </Tooltip>
                           <Tooltip title="Preview form">
                             <IconButton
                               size="small"

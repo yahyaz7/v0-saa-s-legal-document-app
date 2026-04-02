@@ -13,7 +13,7 @@ import {
   CircularProgress,
   Alert,
 } from "@mui/material";
-import { FileText, Plus } from "lucide-react";
+import { FileText } from "lucide-react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 
@@ -30,15 +30,13 @@ export default function TemplatesPage() {
 
   useEffect(() => {
     const supabase = createClient();
-    console.log("[v0] Fetching templates from Supabase...");
     supabase
       .from("templates")
       .select("id, name, description")
+      .eq("is_active", true)
       .order("name")
       .then(({ data, error }: { data: any, error: any }) => {
-        console.log("[v0] Templates response:", { data, error });
         if (error) {
-          console.error("[v0] Templates error:", error);
           setError(`Failed to load templates: ${error.message}`);
         } else {
           setTemplates(data ?? []);
@@ -59,15 +57,6 @@ export default function TemplatesPage() {
             Select a template to create a new document.
           </Typography>
         </Box>
-        <Button
-          component={Link}
-          href="/templates/manage"
-          variant="contained"
-          color="primary"
-          startIcon={<Plus size={18} />}
-        >
-          Add Template
-        </Button>
       </Box>
 
       {/* States */}

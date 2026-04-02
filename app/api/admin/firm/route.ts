@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
 
   const { data: firm, error: firmError } = await db
     .from("firms")
-    .select("id, name, slug, created_at")
+    .select("id, name, slug, logo_url, created_at")
     .eq("id", caller.firmId)
     .single();
 
@@ -67,9 +67,10 @@ export async function PATCH(request: NextRequest) {
 
   if (body.name?.trim()) updates.name = body.name.trim();
   if (body.slug?.trim()) updates.slug = body.slug.trim();
+  if (typeof body.logo_url === "string") updates.logo_url = body.logo_url;
 
   if (Object.keys(updates).length === 0) {
-    return badRequest("Provide at least one field to update: name or slug");
+    return badRequest("Provide at least one field to update: name, slug, or logo_url");
   }
 
   const { data, error } = await makeAdminClient()

@@ -3,7 +3,6 @@ import { Inter } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import { MuiThemeProvider } from '@/components/mui-theme-provider'
 import { StaffShell } from '@/components/staff-shell'
-import { AppProvider } from '@/lib/app-context'
 import './globals.css'
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
@@ -40,9 +39,7 @@ export default function RootLayout({
     <html lang="en">
       <body className={`${inter.variable} font-sans antialiased`}>
         <MuiThemeProvider>
-          <AppProvider>
-            <StaffShell>{children}</StaffShell>
-          </AppProvider>
+          <StaffShell>{children}</StaffShell>
         </MuiThemeProvider>
         <Analytics />
       </body>

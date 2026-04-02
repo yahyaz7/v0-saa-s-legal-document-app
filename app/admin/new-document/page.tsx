@@ -21,106 +21,82 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  IconButton,
 } from "@mui/material";
-import { FileDown, Save, Check, ChevronDown, Plus } from "lucide-react";
-import { useSearchParams } from "next/navigation";
+import { FileDown, Save, Check, ChevronDown, Plus, ArrowLeft } from "lucide-react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { DynamicField, TemplateFieldDef, FieldValue } from "@/components/dynamic-field";
 import { saveDraft, loadDraft, DraftFormData } from "@/lib/drafts";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface PhraseItem {
-  id: string;
-  label: string;
-  phrase_text: string;
-}
-
-interface PhraseCategory {
-  id: string;
-  name: string;
-  phrases: PhraseItem[];
-}
-
+interface PhraseItem { id: string; label: string; phrase_text: string }
+interface PhraseCategory { id: string; name: string; phrases: PhraseItem[] }
 type FormValues = Record<string, FieldValue>;
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
 function initFormValues(fields: TemplateFieldDef[]): FormValues {
-  const values: FormValues = {};
-  for (const field of fields) {
-    if (field.field_type === "checkbox") values[field.field_key] = false;
-    else if (field.field_type === "repeater") values[field.field_key] = [];
-    else values[field.field_key] = "";
-  }
-  return values;
+  const v: FormValues = {};
+  for (const f of fields) v[f.field_key] = f.field_type === "checkbox" ? false : "";
+  return v;
 }
 
-/**
- * Overlay saved draft values onto a fresh FormValues object.
- * Stale keys from old template versions are silently ignored.
- */
 function applyDraftData(base: FormValues, draft: DraftFormData): FormValues {
   const result = { ...base };
   for (const key of Object.keys(result)) {
-    if (draft[key] !== undefined) {
-      result[key] = draft[key] as FieldValue;
-    }
+    if (draft[key] !== undefined) result[key] = draft[key] as FieldValue;
   }
   return result;
 }
 
-/** Grid column span — textareas and repeaters take full width, everything else half. */
-function fieldColSpan(field: TemplateFieldDef) {
-  return field.field_type === "textarea" || field.field_type === "repeater"
+function fieldColSpan(f: TemplateFieldDef) {
+  return f.field_type === "textarea" || f.field_type === "repeater"
     ? { xs: 12 }
     : { xs: 12, sm: 6 };
 }
 
-// ── Main component ────────────────────────────────────────────────────────────
+// ── Main content ──────────────────────────────────────────────────────────────
 
-function DocumentBuilderContent() {
+function AdminDocumentBuilderContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const templateId = searchParams.get("template");
-  const draftParam = searchParams.get("draft");
+  const draftParam  = searchParams.get("draft");
 
-  const [templateName, setTemplateName] = useState("");
-  const [formHeading, setFormHeading] = useState<string | null>(null);
+  const [templateName, setTemplateName]   = useState("");
+  const [formHeading, setFormHeading]     = useState<string | null>(null);
   const [templateFields, setTemplateFields] = useState<TemplateFieldDef[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [fetchError, setFetchError] = useState<string | null>(null);
-  const [userId, setUserId] = useState<string | null>(null);
+  const [loading, setLoading]             = useState(true);
+  const [fetchError, setFetchError]       = useState<string | null>(null);
+  const [userId, setUserId]               = useState<string | null>(null);
 
-  const [formValues, setFormValues] = useState<FormValues>({});
+  const [formValues, setFormValues]   = useState<FormValues>({});
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
-  const [draftId, setDraftId] = useState<string | null>(draftParam);
+  const [draftId, setDraftId]       = useState<string | null>(draftParam);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [docxStatus, setDocxStatus] = useState<"idle" | "generating" | "done" | "error">("idle");
-  const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [snackbarOpen, setSnackbarOpen]       = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState("");
   const [snackbarSeverity, setSnackbarSeverity] = useState<"success" | "error">("success");
 
-  const [phraseCategories, setPhraseCategories] = useState<PhraseCategory[]>([]);
+  const [phraseCategories, setPhraseCategories]   = useState<PhraseCategory[]>([]);
   const [phraseTargetField, setPhraseTargetField] = useState<string>("");
-  const [previewPhrase, setPreviewPhrase] = useState<PhraseItem | null>(null);
-  const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
-  // Last known cursor position in a phrase-bank textarea — used for targeted insertion
+  const [previewPhrase, setPreviewPhrase]         = useState<PhraseItem | null>(null);
+  const [expandedCategory, setExpandedCategory]   = useState<string | null>(null);
   const [cursorPos, setCursorPos] = useState<{ key: string; start: number; end: number } | null>(null);
 
-  // Add Phrase dialog
-  const [addPhraseOpen, setAddPhraseOpen] = useState(false);
-  const [addPhraseForm, setAddPhraseForm] = useState({ category_id: "", label: "", phrase_text: "" });
+  const [addPhraseOpen, setAddPhraseOpen]   = useState(false);
+  const [addPhraseForm, setAddPhraseForm]   = useState({ category_id: "", label: "", phrase_text: "" });
   const [addPhraseSaving, setAddPhraseSaving] = useState(false);
 
-  // ── Data fetching ──────────────────────────────────────────────────────────
+  // ── Fetch ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!templateId) {
-      setFetchError("No template selected. Go back to Templates and choose one.");
+      setFetchError("No template selected. Go back and choose a template.");
       setLoading(false);
       return;
     }
-
     const supabase = createClient();
 
     async function fetchData() {
@@ -129,34 +105,29 @@ function DocumentBuilderContent() {
       try {
         setLoading(true);
 
-        // 1. Active version + template name
-        const { data: versionData, error: vError } = await supabase
+        const { data: vData, error: vError } = await supabase
           .from("template_versions")
-          .select("id, template_id, form_heading, templates (name)")
+          .select("id, template_id, form_heading, templates(name)")
           .eq("template_id", templateId)
           .eq("is_active", true)
           .order("version_number", { ascending: false })
           .limit(1)
           .single();
 
-        if (vError || !versionData) throw new Error("Template version not found");
+        if (vError || !vData) throw new Error("Template version not found");
+        setTemplateName((vData.templates as any).name);
+        setFormHeading((vData as any).form_heading ?? null);
 
-        setTemplateName((versionData.templates as any).name);
-        setFormHeading((versionData as any).form_heading ?? null);
-
-        // 2. Fields for this version
         const { data: fieldsData, error: fError } = await supabase
           .from("template_fields")
           .select("*")
-          .eq("template_version_id", versionData.id)
+          .eq("template_version_id", vData.id)
           .order("field_order");
-
         if (fError) throw fError;
 
         const fields = (fieldsData ?? []) as TemplateFieldDef[];
         setTemplateFields(fields);
 
-        // 3. Initialise form values (optionally hydrated from a saved draft)
         const base = initFormValues(fields);
         if (draftParam) {
           const draftData = await loadDraft(supabase, draftParam);
@@ -165,13 +136,12 @@ function DocumentBuilderContent() {
           setFormValues(base);
         }
 
-        // 4. Firm phrase bank
         const phrasesRes = await fetch("/api/phrases");
         if (phrasesRes.ok) {
-          const phrasesJson = await phrasesRes.json();
-          if (phrasesJson.data) {
-            setPhraseCategories(phrasesJson.data);
-            if (phrasesJson.data.length > 0) setExpandedCategory(phrasesJson.data[0].id);
+          const json = await phrasesRes.json();
+          if (json.data) {
+            setPhraseCategories(json.data);
+            if (json.data.length > 0) setExpandedCategory(json.data[0].id);
           }
         }
       } catch (err: any) {
@@ -180,11 +150,10 @@ function DocumentBuilderContent() {
         setLoading(false);
       }
     }
-
     fetchData();
   }, [templateId, draftParam]);
 
-  // ── Sections: group consecutive fields sharing the same section_heading ──────
+  // ── Sections ───────────────────────────────────────────────────────────────
   const sections = useMemo(() => {
     if (templateFields.length === 0) return [];
     const sorted = [...templateFields].sort((a, b) => a.field_order - b.field_order);
@@ -192,11 +161,8 @@ function DocumentBuilderContent() {
     for (const field of sorted) {
       const heading = field.section_heading ?? "";
       const last = result[result.length - 1];
-      if (!last || last.heading !== heading) {
-        result.push({ heading, fields: [field] });
-      } else {
-        last.fields.push(field);
-      }
+      if (!last || last.heading !== heading) result.push({ heading, fields: [field] });
+      else last.fields.push(field);
     }
     return result;
   }, [templateFields]);
@@ -204,9 +170,7 @@ function DocumentBuilderContent() {
   // ── Form handlers ──────────────────────────────────────────────────────────
   function handleFieldChange(key: string, value: FieldValue) {
     setFormValues((prev) => ({ ...prev, [key]: value }));
-    if (fieldErrors[key]) {
-      setFieldErrors((prev) => { const next = { ...prev }; delete next[key]; return next; });
-    }
+    if (fieldErrors[key]) setFieldErrors((prev) => { const n = { ...prev }; delete n[key]; return n; });
   }
 
   function validate(): boolean {
@@ -214,15 +178,8 @@ function DocumentBuilderContent() {
     for (const field of templateFields) {
       if (field.is_required) {
         const val = formValues[field.field_key];
-        if (field.field_type === "repeater") {
-          if (!Array.isArray(val) || (val as any[]).length === 0) {
-            errors[field.field_key] = `${field.field_label} requires at least one row`;
-          }
-        } else if (field.field_type !== "checkbox") {
-          if (!val || (typeof val === "string" && !val.trim())) {
-            errors[field.field_key] = `${field.field_label} is required`;
-          }
-        }
+        if (!val || (typeof val === "string" && !val.trim()))
+          errors[field.field_key] = `${field.field_label} is required`;
       }
     }
     setFieldErrors(errors);
@@ -230,8 +187,6 @@ function DocumentBuilderContent() {
   }
 
   // ── Phrase bank ────────────────────────────────────────────────────────────
-
-  /** "Insert into" dropdown options — only fields with phrase bank enabled. */
   const phraseTargetOptions = useMemo(() => {
     const opts = templateFields
       .filter((f) => f.supports_phrase_bank)
@@ -241,42 +196,32 @@ function DocumentBuilderContent() {
     return opts;
   }, [templateFields]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /** Insert phrase text at the last known cursor position, or append if unknown. */
   function handleInsertPhrase(phraseText: string) {
     if (!phraseTargetField) return;
     const current = (formValues[phraseTargetField] as string) ?? "";
-
     let updated: string;
     if (cursorPos?.key === phraseTargetField) {
-      // Insert at cursor, replacing any selected text
       const { start, end } = cursorPos;
       updated = current.slice(0, start) + phraseText + current.slice(end);
-      // Advance cursor to end of inserted text
       setCursorPos({ key: phraseTargetField, start: start + phraseText.length, end: start + phraseText.length });
     } else {
-      // Fallback: append at end with a single newline separator
       updated = current ? `${current}\n${phraseText}` : phraseText;
     }
-
     handleFieldChange(phraseTargetField, updated);
     showSnackbar("Phrase inserted.", "success");
   }
 
-  /** Capture cursor position when a phrase-bank textarea loses focus. */
   function handleFieldBlur(key: string, start: number, end: number) {
-    if (templateFields.find((f) => f.field_key === key)?.supports_phrase_bank) {
+    if (templateFields.find((f) => f.field_key === key)?.supports_phrase_bank)
       setCursorPos({ key, start, end });
-    }
   }
 
-  /** Auto-switch the target field when a phrase-bank-enabled textarea gains focus. */
   function handleFieldFocus(key: string) {
-    if (templateFields.find((f) => f.field_key === key)?.supports_phrase_bank) {
+    if (templateFields.find((f) => f.field_key === key)?.supports_phrase_bank)
       setPhraseTargetField(key);
-    }
   }
 
-  // ── Add phrase (staff user) ────────────────────────────────────────────────
+  // ── Add phrase ─────────────────────────────────────────────────────────────
   async function handleAddPhrase() {
     const { category_id, label, phrase_text } = addPhraseForm;
     if (!category_id || !label.trim() || !phrase_text.trim()) return;
@@ -288,7 +233,6 @@ function DocumentBuilderContent() {
         body: JSON.stringify({ category_id, label: label.trim(), phrase_text: phrase_text.trim() }),
       });
       if (!res.ok) throw new Error("Failed to save phrase");
-      // Refresh phrase list
       const refreshed = await fetch("/api/phrases");
       if (refreshed.ok) {
         const json = await refreshed.json();
@@ -298,13 +242,12 @@ function DocumentBuilderContent() {
       setAddPhraseForm({ category_id: "", label: "", phrase_text: "" });
       showSnackbar("Phrase added.", "success");
     } catch {
-      showSnackbar("Failed to add phrase. Please try again.", "error");
+      showSnackbar("Failed to add phrase.", "error");
     } finally {
       setAddPhraseSaving(false);
     }
   }
 
-  // ── Snackbar helper ────────────────────────────────────────────────────────
   function showSnackbar(message: string, severity: "success" | "error") {
     setSnackbarMessage(message);
     setSnackbarSeverity(severity);
@@ -319,7 +262,6 @@ function DocumentBuilderContent() {
       const supabase = createClient();
       const id = await saveDraft({ supabase, userId, templateId, formData: formValues, draftId });
       if (!draftId) {
-        // First save — update URL so a refresh reloads this draft
         const url = new URL(window.location.href);
         url.searchParams.set("draft", id);
         window.history.replaceState(null, "", url.toString());
@@ -330,7 +272,7 @@ function DocumentBuilderContent() {
       setTimeout(() => setSaveStatus("idle"), 2500);
     } catch {
       setSaveStatus("error");
-      showSnackbar("Failed to save draft. Please try again.", "error");
+      showSnackbar("Failed to save draft.", "error");
       setTimeout(() => setSaveStatus("idle"), 3000);
     }
   }
@@ -343,10 +285,7 @@ function DocumentBuilderContent() {
     try {
       const response = await fetch("/api/generate-docx", {
         method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          "X-Requested-With": "XMLHttpRequest",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ templateId, formData: formValues, draftId }),
       });
       if (!response.ok) {
@@ -354,7 +293,6 @@ function DocumentBuilderContent() {
         throw new Error(errorData.error || "Failed to generate document");
       }
       const blob = await response.blob();
-      // Use the server-generated filename from Content-Disposition if present
       const disposition = response.headers.get("Content-Disposition") ?? "";
       const serverName = disposition.match(/filename="([^"]+)"/)?.[1];
       const fileName = serverName || `${templateName.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().slice(0, 10)}.docx`;
@@ -367,17 +305,7 @@ function DocumentBuilderContent() {
       document.body.removeChild(anchor);
       URL.revokeObjectURL(url);
       setDocxStatus("done");
-
-      // Warn user if some template placeholders were unfilled
-      const unmatched = response.headers.get("X-Unmatched-Placeholders");
-      if (unmatched) {
-        showSnackbar(
-          `Document downloaded, but some fields were blank: ${unmatched.split(",").join(", ")}. Check that your template field names match exactly.`,
-          "error"
-        );
-      } else {
-        showSnackbar("DOCX generated and downloaded.", "success");
-      }
+      showSnackbar("DOCX generated and downloaded.", "success");
       setTimeout(() => setDocxStatus("idle"), 3000);
     } catch (err: any) {
       setDocxStatus("error");
@@ -390,14 +318,23 @@ function DocumentBuilderContent() {
   return (
     <Box sx={{ pb: 10 }}>
       {/* Header */}
-      <Box sx={{ mb: 4 }}>
-        <Typography variant="h4" sx={{ fontWeight: 600, mb: 1, color: "#1A1A1A" }}>
-          New Document
-        </Typography>
-        <Typography variant="body1" sx={{ color: "#666666" }}>
-          {draftParam ? "Editing saved draft — " : "Using template: "}
-          <strong>{templateName || (loading ? "Loading…" : "Unknown")}</strong>
-        </Typography>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 3 }}>
+        <IconButton
+          onClick={() => router.push("/admin/documents")}
+          size="small"
+          sx={{ border: "1px solid #E5E7EB", borderRadius: 1.5 }}
+        >
+          <ArrowLeft size={16} />
+        </IconButton>
+        <Box>
+          <Typography variant="h5" sx={{ fontWeight: 700, color: "#111827", lineHeight: 1.2 }}>
+            {draftParam ? "Continue Draft" : "New Document"}
+          </Typography>
+          <Typography variant="body2" sx={{ color: "#6B7280" }}>
+            {draftParam ? "Editing saved draft — " : "Using template: "}
+            <strong>{templateName || (loading ? "Loading…" : "Unknown")}</strong>
+          </Typography>
+        </Box>
       </Box>
 
       {loading && (
@@ -410,7 +347,7 @@ function DocumentBuilderContent() {
 
       {!loading && !fetchError && (
         <Grid container spacing={3} alignItems="flex-start">
-          {/* ── LEFT: Dynamic form ─────────────────────────────────────── */}
+          {/* LEFT: Dynamic form */}
           <Grid item xs={12} md={8}>
             <Paper sx={{ p: 3 }}>
               {formHeading && (
@@ -423,10 +360,7 @@ function DocumentBuilderContent() {
               {sections.map((section, idx) => (
                 <Box key={`section-${idx}`}>
                   {section.heading && (
-                    <Typography
-                      variant="h6"
-                      sx={{ fontWeight: 700, mb: 2, mt: idx > 0 ? 1 : 0, color: "#1A1A1A" }}
-                    >
+                    <Typography variant="h6" sx={{ fontWeight: 700, mb: 2, mt: idx > 0 ? 1 : 0, color: "#1A1A1A" }}>
                       {section.heading}
                     </Typography>
                   )}
@@ -450,7 +384,7 @@ function DocumentBuilderContent() {
             </Paper>
           </Grid>
 
-          {/* ── RIGHT: Phrase Bank — sticky sidebar ──────────────────── */}
+          {/* RIGHT: Phrase Bank — sticky sidebar */}
           <Grid
             item xs={12} md={4}
             sx={{
@@ -462,19 +396,11 @@ function DocumentBuilderContent() {
               flexDirection: "column",
             }}
           >
-            <Paper
-              elevation={0}
-              sx={{ border: "1px solid #E5E7EB", borderRadius: 2, overflow: "hidden", flex: 1, display: "flex", flexDirection: "column" }}
-            >
-              {/* Panel header */}
+            <Paper elevation={0} sx={{ border: "1px solid #E5E7EB", borderRadius: 2, overflow: "hidden", flex: 1, display: "flex", flexDirection: "column" }}>
               <Box sx={{ px: 2, py: 1.5, borderBottom: "1px solid #E5E7EB", bgcolor: "#F9FAFB", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <Box>
-                  <Typography variant="subtitle2" sx={{ fontWeight: 700, color: "#111827" }}>
-                    Phrase Bank
-                  </Typography>
-                  <Typography variant="caption" sx={{ color: "#6B7280" }}>
-                    Click a phrase to insert it into the selected field
-                  </Typography>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 700, color: "#111827" }}>Phrase Bank</Typography>
+                  <Typography variant="caption" sx={{ color: "#6B7280" }}>Click a phrase to insert into the selected field</Typography>
                 </Box>
                 <Button
                   size="small"
@@ -496,136 +422,52 @@ function DocumentBuilderContent() {
                   </Typography>
                 ) : (
                   <>
-                    {/* Target field selector */}
                     <FormControl fullWidth size="small" sx={{ mb: 2 }}>
                       <InputLabel>Insert into</InputLabel>
-                      <Select
-                        value={phraseTargetField}
-                        label="Insert into"
-                        onChange={(e) => setPhraseTargetField(e.target.value)}
-                      >
+                      <Select value={phraseTargetField} label="Insert into" onChange={(e) => setPhraseTargetField(e.target.value)}>
                         {phraseTargetOptions.map(({ key, label }) => (
                           <MenuItem key={key} value={key}>{label}</MenuItem>
                         ))}
                       </Select>
                     </FormControl>
 
-                    {/* Phrase list — accordion by category, fills remaining panel height */}
                     <Box sx={{ overflowY: "auto", mx: -0.5 }}>
                       {phraseCategories.length === 0 ? (
                         <Typography variant="body2" sx={{ color: "#9CA3AF", textAlign: "center", py: 4 }}>
-                          No phrases added yet. Ask your admin to add phrases.
+                          No phrases yet.
                         </Typography>
                       ) : (
-                        phraseCategories.map((cat, idx) => {
+                        phraseCategories.map((cat) => {
                           const isOpen = expandedCategory === cat.id;
                           return (
-                            <Box
-                              key={cat.id}
-                              sx={{
-                                border: "1px solid #E5E7EB",
-                                borderRadius: 2,
-                                mb: 1,
-                                overflow: "hidden",
-                                boxShadow: isOpen ? "0 2px 8px rgba(0,0,0,0.06)" : "none",
-                                transition: "box-shadow 0.2s",
-                              }}
-                            >
-                              {/* Category header — clickable toggle */}
+                            <Box key={cat.id} sx={{ border: "1px solid #E5E7EB", borderRadius: 2, mb: 1, overflow: "hidden", boxShadow: isOpen ? "0 2px 8px rgba(0,0,0,0.06)" : "none", transition: "box-shadow 0.2s" }}>
                               <Box
                                 onClick={() => setExpandedCategory(isOpen ? null : cat.id)}
-                                sx={{
-                                  display: "flex",
-                                  alignItems: "center",
-                                  justifyContent: "space-between",
-                                  px: 1.5,
-                                  py: 1.25,
-                                  cursor: "pointer",
-                                  bgcolor: isOpen ? "#F0F5F1" : "#F9FAFB",
-                                  borderBottom: isOpen ? "1px solid #E5E7EB" : "none",
-                                  transition: "background-color 0.15s",
-                                  "&:hover": { bgcolor: "#EBF2EC" },
-                                  userSelect: "none",
-                                }}
+                                sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", px: 1.5, py: 1.25, cursor: "pointer", bgcolor: isOpen ? "#F0F5F1" : "#F9FAFB", borderBottom: isOpen ? "1px solid #E5E7EB" : "none", transition: "background-color 0.15s", "&:hover": { bgcolor: "#EBF2EC" }, userSelect: "none" }}
                               >
                                 <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                                  <Typography variant="body2" sx={{ fontWeight: 700, color: "#111827" }}>
-                                    {cat.name}
-                                  </Typography>
-                                  <Box
-                                    sx={{
-                                      bgcolor: isOpen ? "#395B45" : "#E5E7EB",
-                                      color: isOpen ? "#fff" : "#6B7280",
-                                      borderRadius: 10,
-                                      px: 0.75,
-                                      py: 0.1,
-                                      fontSize: 11,
-                                      fontWeight: 700,
-                                      lineHeight: 1.6,
-                                      minWidth: 20,
-                                      textAlign: "center",
-                                      transition: "all 0.15s",
-                                    }}
-                                  >
+                                  <Typography variant="body2" sx={{ fontWeight: 700, color: "#111827" }}>{cat.name}</Typography>
+                                  <Box sx={{ bgcolor: isOpen ? "#395B45" : "#E5E7EB", color: isOpen ? "#fff" : "#6B7280", borderRadius: 10, px: 0.75, py: 0.1, fontSize: 11, fontWeight: 700, lineHeight: 1.6, minWidth: 20, textAlign: "center", transition: "all 0.15s" }}>
                                     {cat.phrases.length}
                                   </Box>
                                 </Box>
-                                <Box
-                                  sx={{
-                                    transform: isOpen ? "rotate(180deg)" : "rotate(0deg)",
-                                    transition: "transform 0.2s",
-                                    display: "flex",
-                                    color: "#6B7280",
-                                  }}
-                                >
+                                <Box sx={{ transform: isOpen ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s", display: "flex", color: "#6B7280" }}>
                                   <ChevronDown size={16} />
                                 </Box>
                               </Box>
-
-                              {/* Phrases — collapsed by default */}
                               <Collapse in={isOpen} timeout={200}>
                                 <Box sx={{ p: 1, bgcolor: "#fff" }}>
                                   {cat.phrases.length === 0 ? (
-                                    <Typography variant="caption" sx={{ color: "#9CA3AF", display: "block", textAlign: "center", py: 1.5 }}>
-                                      No phrases in this category.
-                                    </Typography>
+                                    <Typography variant="caption" sx={{ color: "#9CA3AF", display: "block", textAlign: "center", py: 1.5 }}>No phrases in this category.</Typography>
                                   ) : (
                                     cat.phrases.map((phrase) => (
                                       <Box
                                         key={phrase.id}
                                         onClick={() => setPreviewPhrase(phrase)}
-                                        sx={{
-                                          px: 1.25,
-                                          py: 1,
-                                          mb: 0.5,
-                                          borderRadius: 1.5,
-                                          cursor: "pointer",
-                                          border: "1px solid transparent",
-                                          transition: "all 0.15s",
-                                          "&:hover": {
-                                            bgcolor: "rgba(57,91,69,0.06)",
-                                            border: "1px solid #C4D9C8",
-                                          },
-                                          "&:last-child": { mb: 0 },
-                                        }}
+                                        sx={{ px: 1.25, py: 1, mb: 0.5, borderRadius: 1.5, cursor: "pointer", border: "1px solid transparent", transition: "all 0.15s", "&:hover": { bgcolor: "rgba(57,91,69,0.06)", border: "1px solid #C4D9C8" }, "&:last-child": { mb: 0 } }}
                                       >
-                                        <Typography
-                                          variant="body2"
-                                          sx={{ fontWeight: 700, fontSize: 13, color: "#111827", lineHeight: 1.4, mb: 0.25 }}
-                                        >
-                                          {phrase.label || "—"}
-                                        </Typography>
-                                        <Typography
-                                          variant="caption"
-                                          sx={{
-                                            color: "#6B7280",
-                                            display: "-webkit-box",
-                                            WebkitLineClamp: 2,
-                                            WebkitBoxOrient: "vertical",
-                                            overflow: "hidden",
-                                            lineHeight: 1.4,
-                                          }}
-                                        >
+                                        <Typography variant="body2" sx={{ fontWeight: 700, fontSize: 13, color: "#111827", lineHeight: 1.4, mb: 0.25 }}>{phrase.label || "—"}</Typography>
+                                        <Typography variant="caption" sx={{ color: "#6B7280", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", lineHeight: 1.4 }}>
                                           {phrase.phrase_text}
                                         </Typography>
                                       </Box>
@@ -648,19 +490,7 @@ function DocumentBuilderContent() {
 
       {/* Fixed bottom action bar */}
       <Paper
-        sx={{
-          position: "fixed",
-          bottom: 0,
-          left: 240,
-          right: 0,
-          p: 2,
-          display: "flex",
-          justifyContent: "flex-end",
-          alignItems: "center",
-          gap: 2,
-          borderTop: "1px solid #E0E0E0",
-          zIndex: 1000,
-        }}
+        sx={{ position: "fixed", bottom: 0, left: 240, right: 0, p: 2, display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 2, borderTop: "1px solid #E0E0E0", zIndex: 1000 }}
       >
         {draftId && (
           <Typography variant="caption" sx={{ color: "#999", mr: "auto" }}>
@@ -670,11 +500,7 @@ function DocumentBuilderContent() {
         <Button
           variant="outlined"
           color={saveStatus === "error" ? "error" : "primary"}
-          startIcon={
-            saveStatus === "saving" ? <CircularProgress size={14} color="inherit" /> :
-            saveStatus === "saved"  ? <Check size={16} /> :
-            <Save size={16} />
-          }
+          startIcon={saveStatus === "saving" ? <CircularProgress size={14} color="inherit" /> : saveStatus === "saved" ? <Check size={16} /> : <Save size={16} />}
           onClick={handleSaveDraft}
           disabled={saveStatus === "saving"}
         >
@@ -683,13 +509,10 @@ function DocumentBuilderContent() {
         <Button
           variant="contained"
           color={docxStatus === "error" ? "error" : "primary"}
-          startIcon={
-            docxStatus === "generating" ? <CircularProgress size={14} color="inherit" /> :
-            docxStatus === "done"       ? <Check size={16} /> :
-            <FileDown size={16} />
-          }
+          startIcon={docxStatus === "generating" ? <CircularProgress size={14} color="inherit" /> : docxStatus === "done" ? <Check size={16} /> : <FileDown size={16} />}
           onClick={handleGenerateDocx}
           disabled={docxStatus === "generating"}
+          sx={{ bgcolor: "#395B45", "&:hover": { bgcolor: "#2D4A38" } }}
         >
           {docxStatus === "generating" ? "Generating…" : docxStatus === "done" ? "Downloaded" : "Generate DOCX"}
         </Button>
@@ -701,98 +524,37 @@ function DocumentBuilderContent() {
         <DialogContent sx={{ display: "flex", flexDirection: "column", gap: 2.5, pt: "16px !important" }}>
           <FormControl fullWidth size="small">
             <InputLabel>Category</InputLabel>
-            <Select
-              value={addPhraseForm.category_id}
-              label="Category"
-              onChange={(e) => setAddPhraseForm((p) => ({ ...p, category_id: e.target.value }))}
-            >
-              {phraseCategories.map((c) => (
-                <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>
-              ))}
+            <Select value={addPhraseForm.category_id} label="Category" onChange={(e) => setAddPhraseForm((p) => ({ ...p, category_id: e.target.value }))}>
+              {phraseCategories.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
             </Select>
           </FormControl>
-          <TextField
-            label="Label"
-            fullWidth
-            size="small"
-            value={addPhraseForm.label}
-            onChange={(e) => setAddPhraseForm((p) => ({ ...p, label: e.target.value }))}
-            placeholder="e.g. No Comment Advice"
-            required
-          />
-          <TextField
-            label="Phrase Text"
-            fullWidth
-            multiline
-            rows={5}
-            size="small"
-            value={addPhraseForm.phrase_text}
-            onChange={(e) => setAddPhraseForm((p) => ({ ...p, phrase_text: e.target.value }))}
-            placeholder="Enter the full legal phrase here…"
-            required
-          />
+          <TextField label="Label" fullWidth size="small" value={addPhraseForm.label} onChange={(e) => setAddPhraseForm((p) => ({ ...p, label: e.target.value }))} required />
+          <TextField label="Phrase Text" fullWidth multiline rows={5} size="small" value={addPhraseForm.phrase_text} onChange={(e) => setAddPhraseForm((p) => ({ ...p, phrase_text: e.target.value }))} required />
         </DialogContent>
         <DialogActions sx={{ px: 3, py: 2, gap: 1 }}>
-          <Button onClick={() => setAddPhraseOpen(false)} sx={{ color: "#6B7280", textTransform: "none" }}>
-            Cancel
-          </Button>
-          <Button
-            variant="contained"
-            disabled={!addPhraseForm.category_id || !addPhraseForm.label.trim() || !addPhraseForm.phrase_text.trim() || addPhraseSaving}
-            onClick={handleAddPhrase}
-            sx={{ bgcolor: "#395B45", "&:hover": { bgcolor: "#2D4A38" }, textTransform: "none", fontWeight: 600 }}
-          >
+          <Button onClick={() => setAddPhraseOpen(false)} sx={{ color: "#6B7280", textTransform: "none" }}>Cancel</Button>
+          <Button variant="contained" disabled={!addPhraseForm.category_id || !addPhraseForm.label.trim() || !addPhraseForm.phrase_text.trim() || addPhraseSaving} onClick={handleAddPhrase} sx={{ bgcolor: "#395B45", "&:hover": { bgcolor: "#2D4A38" }, textTransform: "none", fontWeight: 600 }}>
             {addPhraseSaving ? "Saving…" : "Save Phrase"}
           </Button>
         </DialogActions>
       </Dialog>
 
       {/* Phrase preview dialog */}
-      <Dialog
-        open={!!previewPhrase}
-        onClose={() => setPreviewPhrase(null)}
-        fullWidth
-        maxWidth="sm"
-        PaperProps={{ sx: { borderRadius: 3 } }}
-      >
-        <DialogTitle sx={{ fontWeight: 700, pb: 1 }}>
-          {previewPhrase?.label || "Phrase"}
-        </DialogTitle>
+      <Dialog open={!!previewPhrase} onClose={() => setPreviewPhrase(null)} fullWidth maxWidth="sm" PaperProps={{ sx: { borderRadius: 3 } }}>
+        <DialogTitle sx={{ fontWeight: 700, pb: 1 }}>{previewPhrase?.label || "Phrase"}</DialogTitle>
         <DialogContent>
-          <Typography
-            variant="body2"
-            sx={{ whiteSpace: "pre-wrap", color: "#374151", lineHeight: 1.7 }}
-          >
-            {previewPhrase?.phrase_text}
-          </Typography>
+          <Typography variant="body2" sx={{ whiteSpace: "pre-wrap", color: "#374151", lineHeight: 1.7 }}>{previewPhrase?.phrase_text}</Typography>
         </DialogContent>
         <DialogActions sx={{ px: 3, py: 2, gap: 1 }}>
-          <Button
-            onClick={() => setPreviewPhrase(null)}
-            sx={{ color: "#6B7280", textTransform: "none" }}
-          >
-            Cancel
-          </Button>
-          <Button
-            variant="contained"
-            onClick={() => {
-              if (previewPhrase) handleInsertPhrase(previewPhrase.phrase_text);
-              setPreviewPhrase(null);
-            }}
-            sx={{ bgcolor: "#395B45", "&:hover": { bgcolor: "#2D4A38" }, textTransform: "none", fontWeight: 600 }}
-          >
+          <Button onClick={() => setPreviewPhrase(null)} sx={{ color: "#6B7280", textTransform: "none" }}>Cancel</Button>
+          <Button variant="contained" onClick={() => { if (previewPhrase) handleInsertPhrase(previewPhrase.phrase_text); setPreviewPhrase(null); }} sx={{ bgcolor: "#395B45", "&:hover": { bgcolor: "#2D4A38" }, textTransform: "none", fontWeight: 600 }}>
             Insert into Field
           </Button>
         </DialogActions>
       </Dialog>
 
       {/* Feedback snackbar */}
-      <Snackbar
-        open={snackbarOpen}
-        autoHideDuration={3500}
-        onClose={() => setSnackbarOpen(false)}
-        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
-      >
+      <Snackbar open={snackbarOpen} autoHideDuration={3500} onClose={() => setSnackbarOpen(false)} anchorOrigin={{ vertical: "bottom", horizontal: "center" }}>
         <Alert onClose={() => setSnackbarOpen(false)} severity={snackbarSeverity} sx={{ width: "100%" }}>
           {snackbarMessage}
         </Alert>
@@ -801,10 +563,10 @@ function DocumentBuilderContent() {
   );
 }
 
-export default function NewDocumentPage() {
+export default function AdminNewDocumentPage() {
   return (
     <Suspense fallback={<Box sx={{ p: 4 }}><CircularProgress /></Box>}>
-      <DocumentBuilderContent />
+      <AdminDocumentBuilderContent />
     </Suspense>
   );
 }

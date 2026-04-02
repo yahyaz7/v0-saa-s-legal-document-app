@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect, useState, useCallback } from "react";
+import { use, useEffect, useState, useCallback, useRef } from "react";
 import {
   Box,
   Typography,
@@ -35,11 +35,13 @@ import {
   XCircle,
   Trash2,
   Pencil,
+  ImagePlus,
+  X,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 
-type Firm = { id: string; name: string; slug: string; created_at: string };
+type Firm = { id: string; name: string; slug: string; logo_url?: string | null; created_at: string };
 
 type FirmUser = {
   id: string;
@@ -95,6 +97,18 @@ export default function FirmDetailPage({
   const [deleteFirmError, setDeleteFirmError] = useState("");
   const [confirmFirmName, setConfirmFirmName] = useState("");
 
+  // ── Logo upload / delete ─────────────────────────────────────
+  const [logoUploading, setLogoUploading] = useState(false);
+  const [logoDeleting, setLogoDeleting] = useState(false);
+  const [logoError, setLogoError] = useState("");
+  const logoInputRef = useRef<HTMLInputElement>(null);
+
+  // ── Edit dialog logo ─────────────────────────────────────────
+  const [editLogoFile, setEditLogoFile] = useState<File | null>(null);
+  const [editLogoPreview, setEditLogoPreview] = useState<string | null>(null);
+  const [editLogoRemove, setEditLogoRemove] = useState(false); // true = remove existing on save
+  const editLogoRef = useRef<HTMLInputElement>(null);
+
   // ── Banners ──────────────────────────────────────────────────
   const [successMsg, setSuccessMsg] = useState("");
 
@@ -141,7 +155,24 @@ export default function FirmDetailPage({
     setEditName(firm?.name ?? "");
     setEditSlug(firm?.slug ?? "");
     setEditError("");
+    setEditLogoFile(null);
+    setEditLogoPreview(null);
+    setEditLogoRemove(false);
     setEditDialogOpen(true);
+  }
+
+  function handleEditLogoSelect(file: File) {
+    setEditLogoFile(file);
+    setEditLogoRemove(false);
+    const reader = new FileReader();
+    reader.onload = (e) => setEditLogoPreview(e.target?.result as string);
+    reader.readAsDataURL(file);
+  }
+
+  function clearEditLogo() {
+    setEditLogoFile(null);
+    setEditLogoPreview(null);
+    if (editLogoRef.current) editLogoRef.current.value = "";
   }
 
   async function handleCreateAdmin() {
@@ -188,10 +219,44 @@ export default function FirmDetailPage({
     setEditSaving(true); setEditError("");
 
     const token = await getToken();
+    const supabase = createClient();
+    let newLogoUrl: string | null | undefined = undefined; // undefined = no change
+
+    // Handle logo remove
+    if (editLogoRemove && firm?.logo_url) {
+      const bucketPath = firm.logo_url.split("/firm-logos/")[1];
+      if (bucketPath) await supabase.storage.from("firm-logos").remove([bucketPath]);
+      newLogoUrl = null;
+    }
+
+    // Handle logo replace/upload
+    if (editLogoFile) {
+      // Remove old logo from storage first
+      if (firm?.logo_url) {
+        const oldPath = firm.logo_url.split("/firm-logos/")[1];
+        if (oldPath) await supabase.storage.from("firm-logos").remove([oldPath]);
+      }
+      const ext = editLogoFile.name.split(".").pop() ?? "png";
+      const uploadPath = `${firmId}/${Date.now()}.${ext}`;
+      const { error: upErr } = await supabase.storage
+        .from("firm-logos")
+        .upload(uploadPath, editLogoFile, { upsert: true, contentType: editLogoFile.type });
+      if (upErr) {
+        setEditError(`Logo upload failed: ${upErr.message}`);
+        setEditSaving(false);
+        return;
+      }
+      const { data: { publicUrl } } = supabase.storage.from("firm-logos").getPublicUrl(uploadPath);
+      newLogoUrl = publicUrl;
+    }
+
+    const body: Record<string, unknown> = { name: editName.trim(), slug: editSlug.trim() };
+    if (newLogoUrl !== undefined) body.logo_url = newLogoUrl;
+
     const res = await fetch(`/api/super-admin/firms?firmId=${firmId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ name: editName.trim(), slug: editSlug.trim() }),
+      body: JSON.stringify(body),
     });
 
     const json = await res.json();
@@ -200,6 +265,33 @@ export default function FirmDetailPage({
 
     setEditDialogOpen(false);
     setSuccessMsg("Firm updated successfully.");
+    loadFirm();
+  }
+
+  async function handleLogoDelete() {
+    if (!firm?.logo_url) return;
+    setLogoDeleting(true);
+    setLogoError("");
+
+    const bucketPath = firm.logo_url.split("/firm-logos/")[1];
+    if (bucketPath) {
+      const supabase = createClient();
+      await supabase.storage.from("firm-logos").remove([bucketPath]);
+    }
+
+    const token = await getToken();
+    const res = await fetch(`/api/super-admin/firms?firmId=${firmId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ logo_url: null }),
+    });
+
+    const json = await res.json();
+    setLogoDeleting(false);
+    if (!res.ok) { setLogoError(json.error || "Failed to remove logo."); return; }
+
+    setFirm((prev) => prev ? { ...prev, logo_url: null } : prev);
+    setSuccessMsg("Logo deleted successfully.");
     loadFirm();
   }
 
@@ -218,6 +310,41 @@ export default function FirmDetailPage({
     if (!res.ok) { setDeleteFirmError(json.error || "Failed to delete firm."); return; }
 
     router.push("/super-admin");
+  }
+
+  async function handleLogoUpload(file: File) {
+    setLogoUploading(true);
+    setLogoError("");
+
+    const ext = file.name.split(".").pop() ?? "png";
+    const path = `${firmId}/${Date.now()}.${ext}`;
+
+    const supabase = createClient();
+    const { error: uploadError } = await supabase.storage
+      .from("firm-logos")
+      .upload(path, file, { upsert: true, contentType: file.type });
+
+    if (uploadError) {
+      setLogoError(uploadError.message);
+      setLogoUploading(false);
+      return;
+    }
+
+    const { data: { publicUrl } } = supabase.storage.from("firm-logos").getPublicUrl(path);
+
+    const token = await getToken();
+    const res = await fetch(`/api/super-admin/firms?firmId=${firmId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ logo_url: publicUrl }),
+    });
+
+    const json = await res.json();
+    setLogoUploading(false);
+    if (!res.ok) { setLogoError(json.error || "Failed to save logo URL."); return; }
+
+    setFirm((prev) => prev ? { ...prev, logo_url: publicUrl } : prev);
+    setSuccessMsg("Firm logo updated.");
   }
 
   const roleColor: Record<string, string> = { admin: "#6366F1", staff: "#16A34A" };
@@ -286,6 +413,69 @@ export default function FirmDetailPage({
           {successMsg}
         </Alert>
       )}
+
+      {/* ── Firm Logo ────────────────────────────────────────── */}
+      <Card elevation={0} sx={{ border: "1px solid #E5E7EB", borderRadius: 2, mb: 3 }}>
+        <CardContent sx={{ pb: "16px !important" }}>
+          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <Box>
+              <Typography variant="subtitle1" sx={{ fontWeight: 600, color: "#111827" }}>
+                Firm Logo
+              </Typography>
+              <Typography variant="caption" sx={{ color: "#6B7280" }}>
+                Shown in the admin sidebar. PNG or JPG, max 2 MB.
+              </Typography>
+            </Box>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+              {firm?.logo_url && (
+                <Box
+                  component="img"
+                  src={firm.logo_url}
+                  alt="Firm logo"
+                  sx={{ height: 48, maxWidth: 120, objectFit: "contain", borderRadius: 1, border: "1px solid #E5E7EB", p: 0.5 }}
+                />
+              )}
+              <input
+                ref={logoInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                style={{ display: "none" }}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleLogoUpload(file);
+                  e.target.value = "";
+                }}
+              />
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<ImagePlus size={14} />}
+                onClick={() => logoInputRef.current?.click()}
+                disabled={logoUploading || logoDeleting || loadingFirm}
+                sx={{ borderColor: "#D1D5DB", color: "#374151", textTransform: "none", fontWeight: 500 }}
+              >
+                {logoUploading ? "Uploading…" : firm?.logo_url ? "Replace Logo" : "Upload Logo"}
+              </Button>
+              {firm?.logo_url && (
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<Trash2 size={14} />}
+                  onClick={handleLogoDelete}
+                  disabled={logoUploading || logoDeleting || loadingFirm}
+                  sx={{ borderColor: "#FECACA", color: "#DC2626", textTransform: "none", fontWeight: 500,
+                    "&:hover": { bgcolor: "rgba(220,38,38,0.04)", borderColor: "#DC2626" } }}
+                >
+                  {logoDeleting ? "Deleting…" : "Delete Logo"}
+                </Button>
+              )}
+            </Box>
+          </Box>
+          {logoError && (
+            <Alert severity="error" sx={{ mt: 1.5 }} onClose={() => setLogoError("")}>{logoError}</Alert>
+          )}
+        </CardContent>
+      </Card>
 
       {/* ── Users table ──────────────────────────────────────── */}
       <Card elevation={0} sx={{ border: "1px solid #E5E7EB", borderRadius: 2 }}>
@@ -448,6 +638,70 @@ export default function FirmDetailPage({
               onChange={(e) => setEditSlug(e.target.value)}
               helperText="Unique identifier used in URLs"
             />
+
+            {/* Logo section */}
+            <Box>
+              <Typography variant="body2" sx={{ color: "#374151", fontWeight: 500, mb: 1 }}>
+                Firm Logo
+              </Typography>
+              <input
+                ref={editLogoRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                style={{ display: "none" }}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleEditLogoSelect(file);
+                  e.target.value = "";
+                }}
+              />
+
+              {/* New logo selected */}
+              {editLogoPreview ? (
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, p: 1.5, border: "1px solid #E5E7EB", borderRadius: 1.5 }}>
+                  <Box component="img" src={editLogoPreview} alt="New logo preview"
+                    sx={{ height: 40, maxWidth: 100, objectFit: "contain", borderRadius: 1 }} />
+                  <Typography variant="caption" sx={{ color: "#6B7280", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {editLogoFile?.name}
+                  </Typography>
+                  <Button size="small" onClick={clearEditLogo}
+                    sx={{ minWidth: 0, p: 0.5, color: "#9CA3AF", "&:hover": { color: "#DC2626" } }}>
+                    <X size={16} />
+                  </Button>
+                </Box>
+              ) : editLogoRemove ? (
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, p: 1.5, border: "1px dashed #FECACA", borderRadius: 1.5, bgcolor: "#FFF5F5" }}>
+                  <Typography variant="caption" sx={{ color: "#DC2626", flex: 1 }}>
+                    Logo will be removed when you save.
+                  </Typography>
+                  <Button size="small" onClick={() => setEditLogoRemove(false)}
+                    sx={{ minWidth: 0, p: 0.5, color: "#9CA3AF", "&:hover": { color: "#374151" } }}>
+                    <X size={16} />
+                  </Button>
+                </Box>
+              ) : (
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
+                  {/* Current logo preview */}
+                  {firm?.logo_url && !editLogoRemove && (
+                    <Box component="img" src={firm.logo_url} alt="Current logo"
+                      sx={{ height: 36, maxWidth: 80, objectFit: "contain", borderRadius: 1, border: "1px solid #E5E7EB", p: 0.5 }} />
+                  )}
+                  <Button variant="outlined" size="small" startIcon={<ImagePlus size={14} />}
+                    onClick={() => editLogoRef.current?.click()}
+                    sx={{ borderColor: "#D1D5DB", color: "#374151", textTransform: "none", fontWeight: 500 }}>
+                    {firm?.logo_url ? "Replace Logo" : "Upload Logo"}
+                  </Button>
+                  {firm?.logo_url && (
+                    <Button variant="outlined" size="small" startIcon={<Trash2 size={14} />}
+                      onClick={() => setEditLogoRemove(true)}
+                      sx={{ borderColor: "#FECACA", color: "#DC2626", textTransform: "none", fontWeight: 500,
+                        "&:hover": { bgcolor: "rgba(220,38,38,0.04)", borderColor: "#DC2626" } }}>
+                      Remove Logo
+                    </Button>
+                  )}
+                </Box>
+              )}
+            </Box>
           </Box>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 3 }}>

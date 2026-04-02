@@ -28,6 +28,7 @@ import {
   FileText,
   BookOpen,
   FolderOpen,
+  BarChart2,
 } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -39,6 +40,7 @@ const navItems = [
   { label: "Templates",     href: "/admin/templates",      icon: FileText },
   { label: "Phrase Bank",   href: "/admin/phrase-bank",    icon: BookOpen },
   { label: "Documents",     href: "/admin/documents",      icon: FolderOpen },
+  { label: "Analytics",     href: "/admin/analytics",      icon: BarChart2 },
   { label: "Team",          href: "/admin/users",          icon: Users },
   { label: "Firm Settings", href: "/admin/settings",       icon: Settings2 },
 ];
@@ -50,10 +52,14 @@ export function AdminShell({ children }: { children: ReactNode }) {
   const [userEmail, setUserEmail] = useState("");
   const [userName, setUserName] = useState("");
   const [userInitials, setUserInitials] = useState("A");
+  const [firmLogoUrl, setFirmLogoUrl] = useState<string | null>(null);
+  const [firmName, setFirmName] = useState<string | null>(null);
 
   useEffect(() => {
     const supabase = createClient();
-    supabase.auth.getUser().then(({ data: { user } }: { data: { user: any } }) => {
+    supabase.auth.getSession().then(async ({ data }: { data: { session: import("@supabase/supabase-js").Session | null } }) => {
+      const session = data.session;
+      const user = session?.user;
       if (!user) return;
       setUserEmail(user.email ?? "");
       const full: string = (user.user_metadata?.full_name as string) || user.email || "";
@@ -63,6 +69,18 @@ export function AdminShell({ children }: { children: ReactNode }) {
         parts.slice(0, 2).map((p) => p[0]?.toUpperCase() ?? "").join("") ||
           (user.email?.[0]?.toUpperCase() ?? "A")
       );
+
+      // Fetch firm details (logo + name) for sidebar
+      if (session?.access_token) {
+        const res = await fetch("/api/admin/firm", {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (res.ok) {
+          const { data } = await res.json();
+          if (data?.logo_url) setFirmLogoUrl(data.logo_url);
+          if (data?.name) setFirmName(data.name);
+        }
+      }
     });
   }, []);
 
@@ -91,12 +109,21 @@ export function AdminShell({ children }: { children: ReactNode }) {
       >
         {/* Logo */}
         <Box sx={{ p: 2, borderBottom: "1px solid #E0E0E0", display: "flex", alignItems: "center", gap: 1.5 }}>
-          <Box sx={{ bgcolor: "rgba(57, 91, 69, 0.1)", borderRadius: 1.5, p: 0.75, display: "flex" }}>
-            <ShieldHalf size={20} color="#395B45" />
-          </Box>
-          <Box>
-            <Typography sx={{ color: "#395B45", fontWeight: 700, fontSize: "0.95rem", lineHeight: 1.2, letterSpacing: "-0.02em" }}>
-              LegalDocs Pro
+          {firmLogoUrl ? (
+            <Box
+              component="img"
+              src={firmLogoUrl}
+              alt="Firm logo"
+              sx={{ height: 36, maxWidth: 36, objectFit: "contain", borderRadius: 1 }}
+            />
+          ) : (
+            <Box sx={{ bgcolor: "rgba(57, 91, 69, 0.1)", borderRadius: 1.5, p: 0.75, display: "flex" }}>
+              <ShieldHalf size={20} color="#395B45" />
+            </Box>
+          )}
+          <Box sx={{ minWidth: 0 }}>
+            <Typography sx={{ color: "#395B45", fontWeight: 700, fontSize: "0.95rem", lineHeight: 1.2, letterSpacing: "-0.02em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {firmName ?? "LegalDocs Pro"}
             </Typography>
             <Typography sx={{ color: "#9CA3AF", fontSize: "0.68rem", fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em" }}>
               Firm Admin
@@ -111,7 +138,9 @@ export function AdminShell({ children }: { children: ReactNode }) {
             const isActive =
               item.href === "/admin"
                 ? pathname === "/admin"
-                : pathname.startsWith(item.href);
+                : item.href === "/admin/documents"
+                  ? pathname.startsWith("/admin/documents") || pathname.startsWith("/admin/new-document")
+                  : pathname.startsWith(item.href);
 
             return (
               <ListItem key={item.href} disablePadding sx={{ mb: 0.5 }}>

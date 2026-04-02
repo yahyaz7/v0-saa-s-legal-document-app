@@ -3,6 +3,35 @@ import { createServerClient } from "@supabase/ssr";
 
 const PUBLIC_ROUTES = ["/login", "/forgot-password", "/reset-password", "/super-admin/login"];
 
+// ── CSRF: allowed mutation methods ─────────────────────────────────────────
+const MUTATION_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+/**
+ * Returns true when the request can be assumed to be same-origin.
+ * Allows:
+ *  - Non-mutation methods (GET, HEAD, OPTIONS)
+ *  - The Origin header matches the request host
+ *  - The X-Requested-With header is present (set by our fetch calls)
+ */
+function isSafeRequest(request: NextRequest): boolean {
+  if (!MUTATION_METHODS.has(request.method)) return true;
+
+  // X-Requested-With is set by all our fetch() calls in the frontend
+  if (request.headers.get("x-requested-with")) return true;
+
+  const origin = request.headers.get("origin");
+  if (!origin) return true; // server-to-server calls have no Origin — allow
+
+  const host = request.headers.get("host") ?? "";
+  try {
+    const originHost = new URL(origin).host;
+    if (originHost === host) return true;
+  } catch {
+    // malformed origin — block
+  }
+  return false;
+}
+
 function roleHome(role: string): string {
   if (role === "super_admin") return "/super-admin";
   if (role === "admin") return "/admin";
@@ -52,7 +81,16 @@ export async function middleware(request: NextRequest) {
   const role = (user.app_metadata?.role as string) ?? "staff";
   const home = roleHome(role);
 
-  if (isApiRoute) return supabaseResponse;
+  if (isApiRoute) {
+    // CSRF check: block cross-origin mutation requests
+    if (!isSafeRequest(request)) {
+      return new NextResponse(
+        JSON.stringify({ error: "CSRF: Cross-origin request rejected" }),
+        { status: 403, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    return supabaseResponse;
+  }
 
   // Authenticated user hitting a public/login route → send to correct home
   if (isPublicRoute) {
@@ -64,7 +102,10 @@ export async function middleware(request: NextRequest) {
   const targetPortal = portalOf(pathname);
   const allowedPortal = portalOf(home);
 
-  if (targetPortal !== allowedPortal) {
+  // Admins and super-admins can also access app routes (to create documents)
+  const canAccessApp = role === "admin" || role === "super_admin";
+
+  if (targetPortal !== allowedPortal && !(canAccessApp && targetPortal === "app")) {
     const url = request.nextUrl.clone();
     url.pathname = home;
     return NextResponse.redirect(url);

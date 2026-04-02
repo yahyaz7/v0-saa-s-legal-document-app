@@ -65,10 +65,12 @@ export function AppShell({ children }: AppShellProps) {
   const [userEmail, setUserEmail] = useState<string>("");
   const [userInitials, setUserInitials] = useState<string>("?");
   const [userRole, setUserRole] = useState<string>("");
+  const [firmName, setFirmName] = useState<string>("LegalDocs Pro");
+  const [firmLogoUrl, setFirmLogoUrl] = useState<string | null>(null);
 
   useEffect(() => {
     const supabase = createClient();
-    supabase.auth.getUser().then(({ data: { user } }: { data: { user: any } }) => {
+    supabase.auth.getUser().then(async ({ data: { user } }: { data: { user: any } }) => {
       if (user?.email) {
         setUserEmail(user.email);
         setUserRole((user.app_metadata?.role as string) ?? "");
@@ -78,6 +80,14 @@ export function AppShell({ children }: AppShellProps) {
           .map((p: string) => p[0]?.toUpperCase() ?? "")
           .join("");
         setUserInitials(initials || user.email[0].toUpperCase());
+
+        // Fetch the firm's name + logo — cookies are sent automatically (same-origin)
+        const res = await fetch("/api/firm-info");
+        if (res.ok) {
+          const json = await res.json();
+          if (json.data?.name) setFirmName(json.data.name);
+          if (json.data?.logo_url) setFirmLogoUrl(json.data.logo_url);
+        }
       }
     });
   }, []);
@@ -124,16 +134,34 @@ export function AppShell({ children }: AppShellProps) {
       >
         {/* Logo Area */}
         <Box sx={{ p: 2, borderBottom: "1px solid #E0E0E0" }}>
-          <Typography
-            variant="h6"
-            sx={{
-              fontWeight: 700,
-              color: "#395B45",
-              letterSpacing: "-0.02em",
-            }}
-          >
-            LegalDocs Pro
-          </Typography>
+          {firmLogoUrl ? (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, minHeight: 40 }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={firmLogoUrl}
+                alt={firmName}
+                style={{
+                  maxHeight: 40,
+                  maxWidth: 150,
+                  objectFit: "contain",
+                  display: "block",
+                }}
+              />
+            </Box>
+          ) : (
+            <Typography
+              variant="h6"
+              sx={{
+                fontWeight: 700,
+                color: "#395B45",
+                letterSpacing: "-0.02em",
+                fontSize: "1rem",
+                lineHeight: 1.3,
+              }}
+            >
+              {firmName}
+            </Typography>
+          )}
         </Box>
 
         {/* Navigation List */}
