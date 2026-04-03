@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Fragment } from "react";
 import {
   Box,
   Typography,
@@ -26,6 +26,8 @@ import {
   LinearProgress,
   Switch,
   Tooltip,
+  Collapse,
+  Divider,
 } from "@mui/material";
 import {
   Upload,
@@ -36,6 +38,10 @@ import {
   Plus,
   Trash2,
   HelpCircle,
+  ChevronDown,
+  ChevronUp,
+  Search,
+  Rows3,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
@@ -46,18 +52,17 @@ interface DetectedField {
   field_label: string;
   field_type: string;
   is_required: boolean;
-  /** For dropdown: string[]. For repeater: RepeaterSubFieldConfig[]. */
   field_options: any[];
   supports_phrase_bank: boolean;
   section_heading: string;
 }
 
-/** Sub-field definition stored in field_options for repeater type fields. */
 interface RepeaterSubFieldConfig {
   name: string;
   label: string;
-  type: "text" | "dropdown" | "date" | "checkbox";
+  type: "text" | "dropdown" | "offence_search";
   options?: string[];
+  _optionsRaw?: string;
 }
 
 const fieldTypeOptions = [
@@ -71,14 +76,253 @@ const fieldTypeOptions = [
 
 const steps = ["Upload DOCX", "Field Configuration", "Publish Template"];
 
+// ── Repeater sub-field editor ─────────────────────────────────────────────────
+
+interface RepeaterSubFieldEditorProps {
+  fieldId: string;
+  subFields: RepeaterSubFieldConfig[];
+  onSubFieldChange: (fieldId: string, colIdx: number, prop: keyof RepeaterSubFieldConfig, value: string) => void;
+  onSubFieldOptionsChange: (fieldId: string, colIdx: number, raw: string) => void;
+  onSubFieldOptionsBlur: (fieldId: string, colIdx: number, raw: string) => void;
+  onAddSubField: (fieldId: string) => void;
+  onRemoveSubField: (fieldId: string, colIdx: number) => void;
+  onToggleOffenceSearch: (fieldId: string, colIdx: number, enabled: boolean) => void;
+}
+
+function RepeaterSubFieldEditor({
+  fieldId,
+  subFields,
+  onSubFieldChange,
+  onSubFieldOptionsChange,
+  onSubFieldOptionsBlur,
+  onAddSubField,
+  onRemoveSubField,
+  onToggleOffenceSearch,
+}: RepeaterSubFieldEditorProps) {
+  return (
+    <Box
+      sx={{
+        mt: 0,
+        border: "1px solid #C6D9CB",
+        borderTop: "none",
+        borderRadius: "0 0 10px 10px",
+        bgcolor: "#F7FBF8",
+        px: 2.5,
+        pt: 2,
+        pb: 2.5,
+      }}
+    >
+      {/* Header */}
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 2 }}>
+        <Rows3 size={14} color="#395B45" />
+        <Typography
+          variant="caption"
+          sx={{ fontWeight: 700, color: "#395B45", textTransform: "uppercase", letterSpacing: 0.5, fontSize: "0.7rem" }}
+        >
+          Repeater Columns
+        </Typography>
+        <Typography variant="caption" sx={{ color: "#9CA3AF", ml: 0.5 }}>
+          — configure each column of this repeating table
+        </Typography>
+      </Box>
+
+      {subFields.length === 0 ? (
+        <Box
+          sx={{
+            py: 2,
+            textAlign: "center",
+            border: "1px dashed #D1D5DB",
+            borderRadius: 1.5,
+            bgcolor: "#fff",
+            mb: 1.5,
+          }}
+        >
+          <Typography variant="caption" sx={{ color: "#9CA3AF" }}>
+            No columns yet — add at least one column below.
+          </Typography>
+        </Box>
+      ) : (
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5, mb: 1.5 }}>
+          {subFields.map((sf, colIdx) => {
+            const isOffenceSearch = sf.type === "offence_search";
+            const isDropdown = sf.type === "dropdown";
+            return (
+              <Box
+                key={colIdx}
+                sx={{
+                  bgcolor: "#fff",
+                  border: isOffenceSearch ? "1.5px solid #395B45" : "1px solid #E5E7EB",
+                  borderRadius: 2,
+                  p: 1.5,
+                  transition: "border-color 0.15s",
+                }}
+              >
+                {/* Row: key + label + delete */}
+                <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start", flexWrap: "wrap" }}>
+                  {/* Column number badge */}
+                  <Box
+                    sx={{
+                      width: 22,
+                      height: 22,
+                      borderRadius: "50%",
+                      bgcolor: isOffenceSearch ? "#395B45" : "#E5EDE8",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      flexShrink: 0,
+                      mt: 0.5,
+                    }}
+                  >
+                    <Typography sx={{ fontSize: "0.62rem", fontWeight: 700, color: isOffenceSearch ? "#fff" : "#395B45" }}>
+                      {colIdx + 1}
+                    </Typography>
+                  </Box>
+
+                  <TextField
+                    size="small"
+                    label="Key"
+                    value={sf.name}
+                    onChange={(e) => onSubFieldChange(fieldId, colIdx, "name", e.target.value)}
+                    sx={{ width: 110, "& .MuiInputBase-input": { fontSize: "0.8rem" } }}
+                  />
+                  <TextField
+                    size="small"
+                    label="Column Label"
+                    value={sf.label}
+                    onChange={(e) => onSubFieldChange(fieldId, colIdx, "label", e.target.value)}
+                    sx={{ flex: 1, minWidth: 120, "& .MuiInputBase-input": { fontSize: "0.8rem" } }}
+                  />
+
+                  {/* Dropdown options — only shown when type is dropdown */}
+                  {isDropdown && (
+                    <TextField
+                      size="small"
+                      label="Options"
+                      placeholder="Yes, No, N/A"
+                      value={
+                        sf._optionsRaw !== undefined
+                          ? sf._optionsRaw
+                          : (sf.options ?? []).join(", ")
+                      }
+                      onChange={(e) => onSubFieldOptionsChange(fieldId, colIdx, e.target.value)}
+                      onBlur={(e) => onSubFieldOptionsBlur(fieldId, colIdx, e.target.value)}
+                      helperText="Comma-separated"
+                      sx={{ width: 180, "& .MuiInputBase-input": { fontSize: "0.8rem" } }}
+                    />
+                  )}
+
+                  <Box sx={{ flexGrow: 1 }} />
+
+                  <Tooltip title="Remove this column">
+                    <IconButton
+                      size="small"
+                      onClick={() => onRemoveSubField(fieldId, colIdx)}
+                      sx={{ color: "#D1D5DB", "&:hover": { color: "#EF4444", bgcolor: "#FEF2F2" }, mt: 0.25 }}
+                    >
+                      <Trash2 size={14} />
+                    </IconButton>
+                  </Tooltip>
+                </Box>
+
+                {/* Input type row — always stable layout */}
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    mt: 1.25,
+                    pt: 1.25,
+                    borderTop: "1px solid #F3F4F6",
+                    gap: 2,
+                  }}
+                >
+                  {/* Input Type — always visible, disabled when offence search is on */}
+                  <FormControl size="small" sx={{ minWidth: 130 }} disabled={isOffenceSearch}>
+                    <InputLabel sx={{ fontSize: "0.78rem" }}>Input Type</InputLabel>
+                    <Select
+                      value={isOffenceSearch ? "text" : sf.type}
+                      label="Input Type"
+                      onChange={(e) => onSubFieldChange(fieldId, colIdx, "type", e.target.value)}
+                      sx={{ fontSize: "0.8rem" }}
+                    >
+                      <MenuItem value="text" sx={{ fontSize: "0.8rem" }}>Text</MenuItem>
+                      <MenuItem value="dropdown" sx={{ fontSize: "0.8rem" }}>Dropdown</MenuItem>
+                    </Select>
+                  </FormControl>
+
+                  {/* Spacer pushes toggle to the right always */}
+                  <Box sx={{ flex: 1 }} />
+
+                  {/* Offence Search toggle — fixed position on the right */}
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexShrink: 0 }}>
+                    <Search size={13} color={isOffenceSearch ? "#395B45" : "#D1D5DB"} />
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        fontSize: "0.75rem",
+                        fontWeight: isOffenceSearch ? 600 : 400,
+                        color: isOffenceSearch ? "#395B45" : "#6B7280",
+                        transition: "color 0.15s",
+                      }}
+                    >
+                      Offence Search
+                    </Typography>
+                    <Tooltip
+                      title={
+                        isOffenceSearch
+                          ? "Disable offence search — revert to plain text input"
+                          : "Enable live search from the offences database for this column"
+                      }
+                    >
+                      <Switch
+                        size="small"
+                        checked={isOffenceSearch}
+                        onChange={(e) => onToggleOffenceSearch(fieldId, colIdx, e.target.checked)}
+                        sx={{
+                          "& .MuiSwitch-switchBase.Mui-checked": { color: "#395B45" },
+                          "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track": { bgcolor: "#395B45" },
+                        }}
+                      />
+                    </Tooltip>
+                  </Box>
+                </Box>
+              </Box>
+            );
+          })}
+        </Box>
+      )}
+
+      <Button
+        size="small"
+        startIcon={<Plus size={13} />}
+        onClick={() => onAddSubField(fieldId)}
+        sx={{
+          textTransform: "none",
+          fontSize: "0.78rem",
+          color: "#395B45",
+          fontWeight: 600,
+          border: "1px dashed #B6D4BE",
+          borderRadius: 1.5,
+          px: 1.5,
+          py: 0.5,
+          "&:hover": { bgcolor: "#EAF2EC", borderColor: "#395B45" },
+        }}
+      >
+        Add column
+      </Button>
+    </Box>
+  );
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
+
 function ManageTemplateContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const existingId = searchParams.get("id");
 
-  // Start at step 1 immediately when resuming a draft — avoids flash of step 0
   const [activeStep, setActiveStep] = useState(existingId ? 1 : 0);
   const [dragOver, setDragOver] = useState(false);
+  const [expandedRepeaters, setExpandedRepeaters] = useState<Set<string>>(new Set());
 
   // Step 1
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
@@ -96,7 +340,7 @@ function ManageTemplateContent() {
   const [error, setError] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
 
-  // ── Load existing draft when ?id= is present ───────────────────────────────
+  // ── Load existing draft ───────────────────────────────────────────────────────
   useEffect(() => {
     if (!existingId) return;
     setLoading(true);
@@ -122,33 +366,37 @@ function ManageTemplateContent() {
             section_heading: f.section_heading ?? "",
           }));
           setFields(mapped);
-          setActiveStep(1); // always land on field configuration when resuming a draft
+          // Auto-expand repeater fields
+          const repeaterIds = new Set(mapped.filter((f) => f.field_type === "repeater").map((f) => f.id));
+          setExpandedRepeaters(repeaterIds);
+          setActiveStep(1);
         }
       })
       .catch(() => setError("Failed to load template draft."))
       .finally(() => setLoading(false));
   }, [existingId]);
 
-  // ── Save fields silently and navigate back ─────────────────────────────────
+  // ── Save and go back ──────────────────────────────────────────────────────────
   const handleSaveAndGoBack = async () => {
     if (templateId && fields.length > 0) {
       const cleanedFields = fields.map((f) => ({
         ...f,
         field_label: f.field_label.trim(),
         field_name: f.field_name.trim(),
-        field_options: f.field_options.map((o) => o.trim()).filter((o) => o !== ""),
+        field_options: f.field_options.map((o: any) =>
+          typeof o === "string" ? o.trim() : o
+        ).filter((o: any) => typeof o !== "string" || o !== ""),
       }));
       await fetch(`/api/templates/${templateId}/fields/setup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fields: cleanedFields, versionId, formHeading }),
-      }).catch(() => {}); // best-effort — don't block navigation
+      }).catch(() => {});
     }
     router.push("/admin/templates");
   };
 
-  // ── STEP 1 ─────────────────────────────────────────────────────────────────
-
+  // ── Step 1 ────────────────────────────────────────────────────────────────────
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -159,34 +407,23 @@ function ManageTemplateContent() {
 
   const handleUploadAndAnalyze = async () => {
     if (!uploadedFile || !templateName) return;
-
     setLoading(true);
     setError(null);
-
-    // Track the newly created template so we can roll it back on any failure
     let createdTemplateId: string | null = null;
-
     try {
-      // 1. Upload — always creates a new template record + version
       const formData = new FormData();
       formData.append("file", uploadedFile);
       formData.append("name", templateName);
       formData.append("description", templateDescription);
 
-      const uploadRes = await fetch("/api/templates/upload", {
-        method: "POST",
-        body: formData,
-      });
+      const uploadRes = await fetch("/api/templates/upload", { method: "POST", body: formData });
       const uploadData = await uploadRes.json();
       if (!uploadRes.ok) throw new Error(uploadData.error || "Upload failed");
 
       const newTemplateId = uploadData.data.template_id;
       const newVersionId = uploadData.data.version_id;
-
-      // Record ID so the catch block can clean up if anything below fails
       createdTemplateId = newTemplateId;
 
-      // 2. Detect placeholders
       const detectRes = await fetch(`/api/templates/${newTemplateId}/detect-placeholders`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -195,38 +432,39 @@ function ManageTemplateContent() {
       const detectData = await detectRes.json();
       if (!detectRes.ok) throw new Error(detectData.error || "Detection failed");
 
-      // Detection succeeded — commit IDs to state
       setTemplateId(newTemplateId);
       setVersionId(newVersionId);
-      createdTemplateId = null; // no longer needs rollback
+      createdTemplateId = null;
 
-      // 3. Map detected items (headings + placeholders) to initial field objects
       type DetectedItem =
         | { type: "heading"; value: string }
         | { type: "placeholder"; value: string }
         | { type: "repeater"; value: string; subFields: string[] };
+
       const { items: detectedItems, suggested_heading } = detectData.data as {
         items: DetectedItem[];
         suggested_heading: string | null;
       };
       if (suggested_heading) setFormHeading(suggested_heading);
+
       let currentHeading = "";
       const initialFields: DetectedField[] = [];
+      const newRepeaterIds = new Set<string>();
+
       for (const item of detectedItems) {
         if (item.type === "heading") {
           currentHeading = item.value;
         } else if (item.type === "repeater") {
-          // Auto-detected {#loopName} — pre-populate sub-fields from the detected variable names
-          const subFieldConfigs: RepeaterSubFieldConfig[] = (item.subFields ?? []).map(
-            (sf: string) => ({
-              name: sf,
-              label: sf.split("_").map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(" "),
-              type: "text" as const,
-              options: [],
-            })
-          );
+          const subFieldConfigs: RepeaterSubFieldConfig[] = (item.subFields ?? []).map((sf: string) => ({
+            name: sf,
+            label: sf.split("_").map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(" "),
+            type: "text" as const,
+            options: [],
+          }));
+          const id = crypto.randomUUID();
+          newRepeaterIds.add(id);
           initialFields.push({
-            id: crypto.randomUUID(),
+            id,
             field_name: item.value,
             field_label: item.value.split("_").map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(" "),
             field_type: "repeater",
@@ -250,11 +488,10 @@ function ManageTemplateContent() {
       }
 
       setFields(initialFields);
+      setExpandedRepeaters(newRepeaterIds); // auto-expand all detected repeaters
       setActiveStep(1);
     } catch (err: any) {
       setError(err.message);
-
-      // Roll back the template record + storage file so it never appears in the list
       if (createdTemplateId) {
         await fetch(`/api/admin/templates/${createdTemplateId}`, { method: "DELETE" }).catch(() => {});
       }
@@ -263,25 +500,21 @@ function ManageTemplateContent() {
     }
   };
 
-  // ── STEP 2 ─────────────────────────────────────────────────────────────────
+  // ── Step 2 helpers ────────────────────────────────────────────────────────────
 
   const handleFieldChange = (id: string, prop: keyof DetectedField, value: unknown) => {
     setFields((prev) => prev.map((f) => (f.id === id ? { ...f, [prop]: value } : f)));
   };
 
   const handleOptionsChange = (id: string, value: string) => {
-    // Only apply comma-split for dropdown fields; repeater config is handled separately
     handleFieldChange(id, "field_options", value.split(","));
   };
 
-  /** Add a new sub-field column to a repeater field. */
   const handleAddSubField = (id: string) => {
     setFields((prev) =>
       prev.map((f) => {
         if (f.id !== id) return f;
-        const existing: RepeaterSubFieldConfig[] = Array.isArray(f.field_options)
-          ? (f.field_options as RepeaterSubFieldConfig[])
-          : [];
+        const existing = (f.field_options as RepeaterSubFieldConfig[]) ?? [];
         const n = existing.length + 1;
         return {
           ...f,
@@ -294,67 +527,63 @@ function ManageTemplateContent() {
     );
   };
 
-  /** Remove a sub-field column from a repeater field. */
   const handleRemoveSubField = (fieldId: string, colIndex: number) => {
     setFields((prev) =>
       prev.map((f) => {
         if (f.id !== fieldId) return f;
-        const existing: RepeaterSubFieldConfig[] = Array.isArray(f.field_options)
-          ? (f.field_options as RepeaterSubFieldConfig[])
-          : [];
-        return { ...f, field_options: existing.filter((_, i) => i !== colIndex) };
+        return { ...f, field_options: (f.field_options as RepeaterSubFieldConfig[]).filter((_, i) => i !== colIndex) };
       })
     );
   };
 
-  /** Update a specific sub-field property inside a repeater field. */
-  const handleSubFieldChange = (
-    fieldId: string,
-    colIndex: number,
-    prop: keyof RepeaterSubFieldConfig,
-    value: string
-  ) => {
+  const handleSubFieldChange = (fieldId: string, colIndex: number, prop: keyof RepeaterSubFieldConfig, value: string) => {
     setFields((prev) =>
       prev.map((f) => {
         if (f.id !== fieldId) return f;
-        const updated: RepeaterSubFieldConfig[] = (f.field_options as RepeaterSubFieldConfig[]).map(
-          (sf, i) => (i === colIndex ? { ...sf, [prop]: value } : sf)
+        const updated = (f.field_options as RepeaterSubFieldConfig[]).map((sf, i) =>
+          i === colIndex ? { ...sf, [prop]: value } : sf
         );
         return { ...f, field_options: updated };
       })
     );
   };
 
-  /**
-   * Store the raw options string while the user is typing — no splitting.
-   * We keep the intermediate string in _optionsRaw so trailing commas work.
-   * On blur we parse it into the final string[].
-   */
   const handleSubFieldOptionsChange = (fieldId: string, colIndex: number, raw: string) => {
     setFields((prev) =>
       prev.map((f) => {
         if (f.id !== fieldId) return f;
-        const updated = (f.field_options as (RepeaterSubFieldConfig & { _optionsRaw?: string })[]).map(
-          (sf, i) => (i === colIndex ? { ...sf, _optionsRaw: raw } : sf)
+        const updated = (f.field_options as RepeaterSubFieldConfig[]).map((sf, i) =>
+          i === colIndex ? { ...sf, _optionsRaw: raw } : sf
         );
         return { ...f, field_options: updated };
       })
     );
   };
 
-  /** On blur: parse raw string into the cleaned string[] and clear _optionsRaw. */
   const handleSubFieldOptionsBlur = (fieldId: string, colIndex: number, raw: string) => {
     const parsed = raw.split(",").map((s) => s.trim()).filter(Boolean);
     setFields((prev) =>
       prev.map((f) => {
         if (f.id !== fieldId) return f;
-        const updated = (f.field_options as (RepeaterSubFieldConfig & { _optionsRaw?: string })[]).map(
-          (sf, i) => {
-            if (i !== colIndex) return sf;
-            const { _optionsRaw, ...clean } = sf as any;
-            return { ...clean, options: parsed };
-          }
-        );
+        const updated = (f.field_options as RepeaterSubFieldConfig[]).map((sf, i) => {
+          if (i !== colIndex) return sf;
+          const { _optionsRaw, ...clean } = sf as any;
+          return { ...clean, options: parsed };
+        });
+        return { ...f, field_options: updated };
+      })
+    );
+  };
+
+  // Toggle offence search on/off for a specific sub-field
+  const handleToggleOffenceSearch = (fieldId: string, colIndex: number, enabled: boolean) => {
+    setFields((prev) =>
+      prev.map((f) => {
+        if (f.id !== fieldId) return f;
+        const updated = (f.field_options as RepeaterSubFieldConfig[]).map((sf, i) => {
+          if (i !== colIndex) return sf;
+          return { ...sf, type: enabled ? ("offence_search" as const) : ("text" as const) };
+        });
         return { ...f, field_options: updated };
       })
     );
@@ -362,6 +591,7 @@ function ManageTemplateContent() {
 
   const handleRemoveField = (id: string) => {
     setFields((prev) => prev.filter((f) => f.id !== id));
+    setExpandedRepeaters((prev) => { const n = new Set(prev); n.delete(id); return n; });
   };
 
   const handleAddField = () => {
@@ -385,6 +615,14 @@ function ManageTemplateContent() {
     });
   };
 
+  const toggleRepeaterExpanded = (id: string) => {
+    setExpandedRepeaters((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
   const handleSaveFields = async () => {
     if (!templateId) return;
     setLoading(true);
@@ -392,21 +630,18 @@ function ManageTemplateContent() {
     try {
       const cleanedFields = fields.map((f) => {
         if (f.field_type === "repeater") {
-          // Repeater: field_options is an array of RepeaterSubFieldConfig objects — pass as-is
           return {
             ...f,
             field_label: f.field_label.trim(),
             field_name: f.field_name.trim(),
-            field_options: f.field_options, // already an array of objects
+            field_options: (f.field_options as RepeaterSubFieldConfig[]).map(({ _optionsRaw, ...sf }: any) => sf),
           };
         }
         return {
           ...f,
           field_label: f.field_label.trim(),
           field_name: f.field_name.trim(),
-          field_options: (f.field_options as string[])
-            .map((o) => String(o).trim())
-            .filter((o) => o !== ""),
+          field_options: (f.field_options as string[]).map((o) => String(o).trim()).filter((o) => o !== ""),
         };
       });
 
@@ -417,7 +652,6 @@ function ManageTemplateContent() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Setup failed");
-
       setActiveStep(2);
     } catch (err: any) {
       setError(err.message);
@@ -425,7 +659,6 @@ function ManageTemplateContent() {
       setLoading(false);
     }
   };
-
 
   const handlePublish = async () => {
     if (!templateId) return;
@@ -435,13 +668,14 @@ function ManageTemplateContent() {
       const res = await fetch(`/api/templates/${templateId}/publish`, { method: "POST" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Publish failed");
-
       router.push("/admin/templates?success=true");
     } catch (err: any) {
       setError(err.message);
       setPublishing(false);
     }
   };
+
+  // ── Render ────────────────────────────────────────────────────────────────────
 
   return (
     <Box>
@@ -450,12 +684,8 @@ function ManageTemplateContent() {
           <ArrowLeft size={18} />
         </IconButton>
         <Box>
-          <Typography variant="h5" sx={{ fontWeight: 700, color: "#111827" }}>
-            Template Builder
-          </Typography>
-          <Typography variant="body2" sx={{ color: "#6B7280" }}>
-            Upload a DOCX, configure fields, then publish
-          </Typography>
+          <Typography variant="h5" sx={{ fontWeight: 700, color: "#111827" }}>Template Builder</Typography>
+          <Typography variant="body2" sx={{ color: "#6B7280" }}>Upload a DOCX, configure fields, then publish</Typography>
         </Box>
       </Box>
 
@@ -466,25 +696,19 @@ function ManageTemplateContent() {
           ))}
         </Stepper>
 
-        {error && (
-          <Alert severity="error" sx={{ mb: 4, borderRadius: 2 }}>{error}</Alert>
-        )}
+        {error && <Alert severity="error" sx={{ mb: 4, borderRadius: 2 }}>{error}</Alert>}
 
         {/* ── Step 1: Upload ── */}
         {activeStep === 0 && (
           <Box sx={{ maxWidth: 800, mx: "auto" }}>
             <Box sx={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-              {/* Drop zone */}
               <Box sx={{ flex: "1 1 300px" }}>
-                <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 2 }}>
-                  1. Select DOCX Template
-                </Typography>
+                <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 2 }}>1. Select DOCX Template</Typography>
                 <Paper
                   onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
                   onDragLeave={() => setDragOver(false)}
                   onDrop={(e) => {
-                    e.preventDefault();
-                    setDragOver(false);
+                    e.preventDefault(); setDragOver(false);
                     const file = e.dataTransfer.files[0];
                     if (file?.name.endsWith(".docx")) {
                       setUploadedFile(file);
@@ -512,34 +736,22 @@ function ManageTemplateContent() {
                   <Typography variant="caption" sx={{ color: "#6B7280" }}>Maximum file size: 10MB</Typography>
                 </Paper>
               </Box>
-
-              {/* Meta */}
               <Box sx={{ flex: "1 1 300px" }}>
-                <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 2 }}>
-                  2. Template Details
-                </Typography>
+                <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 2 }}>2. Template Details</Typography>
                 <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
                   <TextField
-                    label="Template Name"
-                    fullWidth
-                    value={templateName}
+                    label="Template Name" fullWidth value={templateName}
                     onChange={(e) => setTemplateName(e.target.value)}
-                    placeholder="e.g. Magistrates Attendance Note"
-                    required
+                    placeholder="e.g. Magistrates Attendance Note" required
                   />
                   <TextField
-                    label="Description (Optional)"
-                    fullWidth
-                    multiline
-                    rows={3}
+                    label="Description (Optional)" fullWidth multiline rows={3}
                     value={templateDescription}
                     onChange={(e) => setTemplateDescription(e.target.value)}
                     placeholder="Describe when to use this template..."
                   />
                   <Button
-                    variant="contained"
-                    fullWidth
-                    size="large"
+                    variant="contained" fullWidth size="large"
                     disabled={!uploadedFile || !templateName || loading}
                     onClick={handleUploadAndAnalyze}
                     endIcon={loading ? null : <ArrowRight size={18} />}
@@ -556,28 +768,18 @@ function ManageTemplateContent() {
         {/* ── Step 2: Configure Fields ── */}
         {activeStep === 1 && (
           <Box>
-            {/* Form Heading — detected from DOCX, editable, mandatory */}
+            {/* Form heading */}
             <Box sx={{ textAlign: "center", mb: 4 }}>
               <Typography variant="caption" sx={{ color: "#6B7280", display: "block", mb: 1 }}>
                 Form Heading <span style={{ color: "#EF4444" }}>*</span>
               </Typography>
               <TextField
-                fullWidth
-                value={formHeading}
+                fullWidth value={formHeading}
                 onChange={(e) => setFormHeading(e.target.value)}
                 placeholder="e.g. COURT ATTENDANCE NOTE"
-                required
-                error={formHeading.trim() === ""}
-                helperText={formHeading.trim() === "" ? "Form heading is required" : "Displayed at the top of the form when users fill it in"}
-                inputProps={{
-                  style: {
-                    textAlign: "center",
-                    fontWeight: 800,
-                    fontSize: "1.1rem",
-                    letterSpacing: 1,
-                    textTransform: "uppercase",
-                  },
-                }}
+                required error={formHeading.trim() === ""}
+                helperText={formHeading.trim() === "" ? "Form heading is required" : "Displayed at the top of the form"}
+                inputProps={{ style: { textAlign: "center", fontWeight: 800, fontSize: "1.1rem", letterSpacing: 1, textTransform: "uppercase" } }}
                 sx={{ maxWidth: 560, mx: "auto" }}
               />
             </Box>
@@ -590,8 +792,7 @@ function ManageTemplateContent() {
                 </Typography>
               </Box>
               <Button
-                startIcon={<Plus size={16} />}
-                onClick={handleAddField}
+                startIcon={<Plus size={16} />} onClick={handleAddField}
                 sx={{ color: "#395B45", fontWeight: 600, textTransform: "none" }}
               >
                 Add Field
@@ -612,176 +813,181 @@ function ManageTemplateContent() {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {fields.map((field) => (
-                    <TableRow key={field.id} hover>
-                      <TableCell sx={{ py: 1.5 }}>
-                        <Chip
-                          label={`{${field.field_name}}`}
-                          size="small"
-                          sx={{ fontFamily: "monospace", bgcolor: "#F3F4F6", fontWeight: 600 }}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <TextField
-                          size="small"
-                          fullWidth
-                          value={field.field_label}
-                          onChange={(e) => handleFieldChange(field.id, "field_label", e.target.value)}
-                        />
-                      </TableCell>
-                      <TableCell sx={{ minWidth: 140 }}>
-                        <FormControl size="small" fullWidth>
-                          <Select
-                            value={field.field_type}
-                            onChange={(e) => handleFieldChange(field.id, "field_type", e.target.value)}
-                          >
-                            {fieldTypeOptions.map((opt) => (
-                              <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>
-                            ))}
-                          </Select>
-                        </FormControl>
-                      </TableCell>
-                      <TableCell sx={{ minWidth: 260 }}>
-                        {field.field_type === "dropdown" ? (
-                          <TextField
-                            size="small"
-                            fullWidth
-                            placeholder="Option 1, Option 2, ..."
-                            value={
-                              Array.isArray(field.field_options) &&
-                              (field.field_options.length === 0 || typeof (field.field_options as any[])[0] === "string")
-                                ? (field.field_options as string[]).join(",")
-                                : ""
-                            }
-                            onChange={(e) => handleOptionsChange(field.id, e.target.value)}
-                          />
-                        ) : field.field_type === "repeater" ? (
-                          <Box>
-                            {(field.field_options as RepeaterSubFieldConfig[]).map((sf, colIdx) => (
-                              <Box
-                                key={colIdx}
-                                sx={{
-                                  display: "flex",
-                                  alignItems: "flex-end",
-                                  gap: 0.5,
-                                  mb: 1,
-                                  flexWrap: "wrap",
-                                  p: 0.75,
-                                  border: "1px solid #E5E7EB",
-                                  borderRadius: 1,
-                                  bgcolor: "#F9FAFB",
+                  {fields.map((field) => {
+                    const isRepeater = field.field_type === "repeater";
+                    const isExpanded = expandedRepeaters.has(field.id);
+                    const subFields = isRepeater ? (field.field_options as RepeaterSubFieldConfig[]) : [];
+                    const offenceSearchCount = subFields.filter((sf) => sf.type === "offence_search").length;
+
+                    return (
+                      <Fragment key={field.id}>
+                        <TableRow
+                          sx={{
+                            bgcolor: isRepeater ? "#F7FBF8" : "inherit",
+                            // Remove bottom border when repeater is expanded so card flows in
+                            "& td": isRepeater && isExpanded ? { borderBottom: "none" } : {},
+                          }}
+                        >
+                          <TableCell sx={{ py: 1.5 }}>
+                            <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+                              <Chip
+                                label={`{${field.field_name}}`}
+                                size="small"
+                                sx={{ fontFamily: "monospace", bgcolor: isRepeater ? "#E5EDE8" : "#F3F4F6", fontWeight: 600 }}
+                              />
+                              {isRepeater && (
+                                <Chip
+                                  label={`${subFields.length} cols`}
+                                  size="small"
+                                  sx={{ fontSize: "0.65rem", height: 18, bgcolor: "#395B45", color: "#fff" }}
+                                />
+                              )}
+                            </Box>
+                          </TableCell>
+                          <TableCell>
+                            <TextField
+                              size="small" fullWidth value={field.field_label}
+                              onChange={(e) => handleFieldChange(field.id, "field_label", e.target.value)}
+                            />
+                          </TableCell>
+                          <TableCell sx={{ minWidth: 140 }}>
+                            <FormControl size="small" fullWidth>
+                              <Select
+                                value={field.field_type}
+                                onChange={(e) => {
+                                  handleFieldChange(field.id, "field_type", e.target.value);
+                                  if (e.target.value === "repeater" && !isRepeater) {
+                                    handleFieldChange(field.id, "field_options", []);
+                                    setExpandedRepeaters((prev) => new Set([...prev, field.id]));
+                                  }
                                 }}
                               >
-                                <TextField
-                                  size="small"
-                                  placeholder="key"
-                                  label="Key"
-                                  value={sf.name}
-                                  onChange={(e) => handleSubFieldChange(field.id, colIdx, "name", e.target.value)}
-                                  sx={{ width: 80, "& .MuiInputBase-input": { fontSize: "0.72rem" } }}
-                                />
-                                <TextField
-                                  size="small"
-                                  placeholder="Label"
-                                  label="Label"
-                                  value={sf.label}
-                                  onChange={(e) => handleSubFieldChange(field.id, colIdx, "label", e.target.value)}
-                                  sx={{ width: 100, "& .MuiInputBase-input": { fontSize: "0.72rem" } }}
-                                />
-                                <FormControl size="small" sx={{ width: 88 }}>
-                                  <InputLabel sx={{ fontSize: "0.72rem" }}>Type</InputLabel>
-                                  <Select
-                                    value={sf.type}
-                                    label="Type"
-                                    onChange={(e) => handleSubFieldChange(field.id, colIdx, "type", e.target.value)}
-                                    sx={{ fontSize: "0.72rem" }}
+                                {fieldTypeOptions.map((opt) => (
+                                  <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>
+                                ))}
+                              </Select>
+                            </FormControl>
+                          </TableCell>
+                          <TableCell sx={{ minWidth: 220 }}>
+                            {field.field_type === "dropdown" ? (
+                              <TextField
+                                size="small" fullWidth placeholder="Option 1, Option 2, ..."
+                                value={
+                                  Array.isArray(field.field_options) &&
+                                  (field.field_options.length === 0 || typeof (field.field_options as any[])[0] === "string")
+                                    ? (field.field_options as string[]).join(",")
+                                    : ""
+                                }
+                                onChange={(e) => handleOptionsChange(field.id, e.target.value)}
+                              />
+                            ) : isRepeater ? (
+                              /* Repeater summary + expand toggle */
+                              <Button
+                                size="small"
+                                onClick={() => toggleRepeaterExpanded(field.id)}
+                                endIcon={isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                                sx={{
+                                  textTransform: "none",
+                                  fontSize: "0.78rem",
+                                  color: "#395B45",
+                                  fontWeight: 600,
+                                  border: "1px solid #B6D4BE",
+                                  borderRadius: 1.5,
+                                  px: 1.25,
+                                  bgcolor: isExpanded ? "#EAF2EC" : "transparent",
+                                  "&:hover": { bgcolor: "#EAF2EC" },
+                                }}
+                              >
+                                {isExpanded ? "Hide columns" : "Configure columns"}
+                                {offenceSearchCount > 0 && (
+                                  <Box
+                                    component="span"
+                                    sx={{
+                                      ml: 0.75,
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: 0.3,
+                                      bgcolor: "#395B45",
+                                      color: "#fff",
+                                      borderRadius: 1,
+                                      px: 0.6,
+                                      py: 0.1,
+                                      fontSize: "0.6rem",
+                                      fontWeight: 700,
+                                    }}
                                   >
-                                    <MenuItem value="text" sx={{ fontSize: "0.72rem" }}>Text</MenuItem>
-                                    <MenuItem value="dropdown" sx={{ fontSize: "0.72rem" }}>Dropdown</MenuItem>
-                                    <MenuItem value="date" sx={{ fontSize: "0.72rem" }}>Date</MenuItem>
-                                    <MenuItem value="checkbox" sx={{ fontSize: "0.72rem" }}>Checkbox</MenuItem>
-                                  </Select>
-                                </FormControl>
-                                                                {sf.type === "dropdown" && (
-                                  <TextField
-                                    size="small"
-                                    placeholder="A, B, C"
-                                    label="Options"
-                                    value={
-                                      (sf as any)._optionsRaw !== undefined
-                                        ? (sf as any)._optionsRaw
-                                        : (sf.options ?? []).join(", ")
-                                    }
-                                    onChange={(e) =>
-                                      handleSubFieldOptionsChange(field.id, colIdx, e.target.value)
-                                    }
-                                    onBlur={(e) =>
-                                      handleSubFieldOptionsBlur(field.id, colIdx, e.target.value)
-                                    }
-                                    helperText="Comma-separated"
-                                    sx={{ width: 160, "& .MuiInputBase-input": { fontSize: "0.72rem" } }}
-                                  />
+                                    <Search size={9} />
+                                    {offenceSearchCount}
+                                  </Box>
                                 )}
+                              </Button>
+                            ) : (
+                              <Typography variant="caption" sx={{ color: "#9CA3AF" }}>No extra config</Typography>
+                            )}
+                          </TableCell>
 
-                                <IconButton size="small" onClick={() => handleRemoveSubField(field.id, colIdx)} sx={{ color: "#EF4444" }}>
-                                  <Trash2 size={13} />
-                                </IconButton>
-                              </Box>
-                            ))}
-                            <Button
-                              size="small"
-                              startIcon={<Plus size={11} />}
-                              onClick={() => handleAddSubField(field.id)}
-                              sx={{ textTransform: "none", fontSize: "0.72rem", color: "#395B45", py: 0.25 }}
-                            >
-                              Add column
-                            </Button>
-                          </Box>
-                        ) : (
-                          <Typography variant="caption" sx={{ color: "#9CA3AF" }}>No extra config</Typography>
+                          <TableCell align="center">
+                            <input
+                              type="checkbox"
+                              checked={field.is_required}
+                              onChange={(e) => handleFieldChange(field.id, "is_required", e.target.checked)}
+                              style={{ width: 18, height: 18, accentColor: "#395B45" }}
+                            />
+                          </TableCell>
+                          <TableCell align="center">
+                            <Tooltip title="Allow phrase bank insertion for this field">
+                              <Switch
+                                size="small"
+                                checked={field.supports_phrase_bank}
+                                onChange={(e) => handleFieldChange(field.id, "supports_phrase_bank", e.target.checked)}
+                                color="primary"
+                              />
+                            </Tooltip>
+                          </TableCell>
+                          <TableCell align="right">
+                            <IconButton size="small" onClick={() => handleRemoveField(field.id)} sx={{ color: "#EF4444" }}>
+                              <Trash2 size={16} />
+                            </IconButton>
+                          </TableCell>
+                        </TableRow>
+
+                        {/* Repeater sub-field editor — expands inline below the row */}
+                        {isRepeater && (
+                          <TableRow>
+                            <TableCell colSpan={7} sx={{ p: 0, border: 0 }}>
+                              <Collapse in={isExpanded} unmountOnExit>
+                                <Box sx={{ px: 2, pb: 1 }}>
+                                  <RepeaterSubFieldEditor
+                                    fieldId={field.id}
+                                    subFields={subFields}
+                                    onSubFieldChange={handleSubFieldChange}
+                                    onSubFieldOptionsChange={handleSubFieldOptionsChange}
+                                    onSubFieldOptionsBlur={handleSubFieldOptionsBlur}
+                                    onAddSubField={handleAddSubField}
+                                    onRemoveSubField={handleRemoveSubField}
+                                    onToggleOffenceSearch={handleToggleOffenceSearch}
+                                  />
+                                </Box>
+                              </Collapse>
+                            </TableCell>
+                          </TableRow>
                         )}
-                      </TableCell>
-
-                      <TableCell align="center">
-                        <input
-                          type="checkbox"
-                          checked={field.is_required}
-                          onChange={(e) => handleFieldChange(field.id, "is_required", e.target.checked)}
-                          style={{ width: 18, height: 18, accentColor: "#395B45" }}
-                        />
-                      </TableCell>
-                      <TableCell align="center">
-                        <Tooltip title="Allow phrase bank insertion for this field">
-                          <Switch
-                            size="small"
-                            checked={field.supports_phrase_bank}
-                            onChange={(e) => handleFieldChange(field.id, "supports_phrase_bank", e.target.checked)}
-                            color="primary"
-                          />
-                        </Tooltip>
-                      </TableCell>
-                      <TableCell align="right">
-                        <IconButton size="small" onClick={() => handleRemoveField(field.id)} sx={{ color: "#EF4444" }}>
-                          <Trash2 size={16} />
-                        </IconButton>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                      </Fragment>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </TableContainer>
 
             <Box sx={{ display: "flex", justifyContent: "space-between" }}>
               <Button
-                variant="outlined"
-                onClick={() => setActiveStep(0)}
+                variant="outlined" onClick={() => setActiveStep(0)}
                 sx={{ color: "#374151", borderColor: "#D1D5DB", textTransform: "none" }}
               >
                 Back
               </Button>
               <Button
-                variant="contained"
-                onClick={handleSaveFields}
+                variant="contained" onClick={handleSaveFields}
                 disabled={loading || !formHeading.trim()}
                 sx={{ bgcolor: "#395B45", "&:hover": { bgcolor: "#2D4A38" }, textTransform: "none", px: 4 }}
               >
@@ -811,7 +1017,7 @@ function ManageTemplateContent() {
               <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2 }}>
                 <Box sx={{ flex: "1 1 40%" }}>
                   <Typography variant="caption" sx={{ color: "#6B7280" }}>File</Typography>
-                  <Typography variant="body2" sx={{ fontWeight: 600 }}>{uploadedFile?.name}</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>{uploadedFile?.name ?? templateName}</Typography>
                 </Box>
                 <Box sx={{ flex: "1 1 40%" }}>
                   <Typography variant="caption" sx={{ color: "#6B7280" }}>Field Count</Typography>
@@ -824,6 +1030,15 @@ function ManageTemplateContent() {
                   </Typography>
                 </Box>
                 <Box sx={{ flex: "1 1 40%" }}>
+                  <Typography variant="caption" sx={{ color: "#6B7280" }}>Offence Search</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    {fields.filter((f) =>
+                      f.field_type === "repeater" &&
+                      (f.field_options as RepeaterSubFieldConfig[]).some((sf) => sf.type === "offence_search")
+                    ).length} Repeater{fields.filter((f) => f.field_type === "repeater" && (f.field_options as RepeaterSubFieldConfig[]).some((sf) => sf.type === "offence_search")).length !== 1 ? "s" : ""} with search
+                  </Typography>
+                </Box>
+                <Box sx={{ flex: "1 1 40%" }}>
                   <Typography variant="caption" sx={{ color: "#6B7280" }}>Status</Typography>
                   <Typography variant="body2" sx={{ color: "#395B45", fontWeight: 700 }}>Ready to Publish</Typography>
                 </Box>
@@ -832,17 +1047,13 @@ function ManageTemplateContent() {
 
             <Box sx={{ display: "flex", gap: 2, justifyContent: "center" }}>
               <Button
-                variant="outlined"
-                onClick={() => setActiveStep(1)}
-                disabled={publishing}
+                variant="outlined" onClick={() => setActiveStep(1)} disabled={publishing}
                 sx={{ color: "#374151", borderColor: "#D1D5DB", textTransform: "none", px: 4 }}
               >
                 Go Back
               </Button>
               <Button
-                variant="contained"
-                onClick={handlePublish}
-                disabled={publishing}
+                variant="contained" onClick={handlePublish} disabled={publishing}
                 sx={{ bgcolor: "#395B45", "&:hover": { bgcolor: "#2D4A38" }, textTransform: "none", px: 6 }}
               >
                 {publishing ? "Publishing…" : "Finalize & Publish"}
@@ -856,10 +1067,9 @@ function ManageTemplateContent() {
         <HelpCircle size={20} color="#6B7280" />
         <Typography variant="body2" sx={{ color: "#6B7280" }}>
           <strong>Pro Tip:</strong> Placeholders like <code>{"{client_name}"}</code> are automatically detected from your DOCX.
-          Use <code>Dropdown</code> for fields with fixed options to ensure data consistency.
+          For repeater fields, toggle <strong>Offence Search</strong> on any column to enable live search from the offences database.
         </Typography>
       </Box>
-
     </Box>
   );
 }
