@@ -27,7 +27,6 @@ import {
   Switch,
   Tooltip,
   Collapse,
-  Divider,
 } from "@mui/material";
 import {
   Upload,
@@ -71,6 +70,7 @@ const fieldTypeOptions = [
   { value: "date", label: "Date" },
   { value: "dropdown", label: "Dropdown" },
   { value: "checkbox", label: "Checkbox" },
+  { value: "offence_search", label: "Offence Search" },
   { value: "repeater", label: "Repeater (Table Rows)" },
 ];
 
@@ -779,7 +779,7 @@ function ManageTemplateContent() {
                 placeholder="e.g. COURT ATTENDANCE NOTE"
                 required error={formHeading.trim() === ""}
                 helperText={formHeading.trim() === "" ? "Form heading is required" : "Displayed at the top of the form"}
-                inputProps={{ style: { textAlign: "center", fontWeight: 800, fontSize: "1.1rem", letterSpacing: 1, textTransform: "uppercase" } }}
+                slotProps={{ htmlInput: { style: { textAlign: "center", fontWeight: 800, fontSize: "1.1rem", letterSpacing: 1, textTransform: "uppercase" } } }}
                 sx={{ maxWidth: 560, mx: "auto" }}
               />
             </Box>
@@ -1032,10 +1032,17 @@ function ManageTemplateContent() {
                 <Box sx={{ flex: "1 1 40%" }}>
                   <Typography variant="caption" sx={{ color: "#6B7280" }}>Offence Search</Typography>
                   <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                    {fields.filter((f) =>
-                      f.field_type === "repeater" &&
-                      (f.field_options as RepeaterSubFieldConfig[]).some((sf) => sf.type === "offence_search")
-                    ).length} Repeater{fields.filter((f) => f.field_type === "repeater" && (f.field_options as RepeaterSubFieldConfig[]).some((sf) => sf.type === "offence_search")).length !== 1 ? "s" : ""} with search
+                    {(() => {
+                      const standalone = fields.filter((f) => f.field_type === "offence_search").length;
+                      const repeaters = fields.filter((f) =>
+                        f.field_type === "repeater" &&
+                        (f.field_options as RepeaterSubFieldConfig[]).some((sf) => sf.type === "offence_search")
+                      ).length;
+                      const parts = [];
+                      if (standalone > 0) parts.push(`${standalone} field${standalone !== 1 ? "s" : ""}`);
+                      if (repeaters > 0) parts.push(`${repeaters} repeater${repeaters !== 1 ? "s" : ""}`);
+                      return parts.length > 0 ? parts.join(", ") : "None";
+                    })()}
                   </Typography>
                 </Box>
                 <Box sx={{ flex: "1 1 40%" }}>

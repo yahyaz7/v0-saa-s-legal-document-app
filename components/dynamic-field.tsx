@@ -43,7 +43,7 @@ export interface RepeaterSubField {
 export interface TemplateFieldDef {
   field_key: string;
   field_label: string;
-  field_type: "text" | "textarea" | "date" | "dropdown" | "checkbox" | "repeater";
+  field_type: "text" | "textarea" | "date" | "dropdown" | "checkbox" | "repeater" | "offence_search";
   is_required: boolean;
   field_order: number;
   field_options: string[] | RepeaterSubField[] | null;
@@ -51,8 +51,8 @@ export interface TemplateFieldDef {
   section_heading?: string | null;
 }
 
-export type RepeaterRow = Record<string, string>;
-export type FieldValue = string | boolean | RepeaterRow[];
+export type RepeaterRow = Record<string, string | string[]>;
+export type FieldValue = string | boolean | string[] | RepeaterRow[];
 
 interface DynamicFieldProps {
   field: TemplateFieldDef;
@@ -74,7 +74,7 @@ function parseSubFields(raw: TemplateFieldDef["field_options"]): RepeaterSubFiel
 
 function emptyRow(subFields: RepeaterSubField[]): RepeaterRow {
   const row: RepeaterRow = {};
-  for (const sf of subFields) row[sf.name] = "";
+  for (const sf of subFields) row[sf.name] = sf.type === "offence_search" ? [] : "";
   return row;
 }
 
@@ -88,9 +88,9 @@ interface OffenceResult {
 }
 
 interface OffenceSearchCellProps {
-  value: string;
+  value: string[];
   placeholder: string;
-  onChange: (val: string) => void;
+  onChange: (val: string[]) => void;
   disabled?: boolean;
 }
 
@@ -100,16 +100,16 @@ const OffenceSearchCell = memo(function OffenceSearchCell({
   onChange,
   disabled,
 }: OffenceSearchCellProps) {
+  const selected: string[] = Array.isArray(value) ? value : value ? [value as unknown as string] : [];
+
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<OffenceResult[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  // Position for the portal dropdown
   const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties>({});
   const inputRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Reposition the portal dropdown to sit below the input
   const updatePosition = useCallback(() => {
     if (!inputRef.current) return;
     const rect = inputRef.current.getBoundingClientRect();
@@ -117,7 +117,7 @@ const OffenceSearchCell = memo(function OffenceSearchCell({
       position: "fixed",
       top: rect.bottom + 4,
       left: rect.left,
-      width: Math.max(rect.width, 340),
+      width: Math.max(rect.width, 360),
       zIndex: 9999,
     });
   }, []);
@@ -127,7 +127,6 @@ const OffenceSearchCell = memo(function OffenceSearchCell({
     if (!open) return;
     function handle(e: MouseEvent) {
       const target = e.target as Node;
-      // Don't close if clicking inside the dropdown portal
       const portal = document.getElementById("offence-search-portal");
       if (inputRef.current?.contains(target) || portal?.contains(target)) return;
       setOpen(false);
@@ -151,9 +150,7 @@ const OffenceSearchCell = memo(function OffenceSearchCell({
   const fetchResults = useCallback(async (q: string) => {
     setLoading(true);
     try {
-      const res = await fetch(
-        `/api/offences/search?q=${encodeURIComponent(q)}&limit=25`
-      );
+      const res = await fetch(`/api/offences/search?q=${encodeURIComponent(q)}&limit=25`);
       const json = await res.json();
       if (json.success) setResults(json.data ?? []);
       else setResults([]);
@@ -173,116 +170,166 @@ const OffenceSearchCell = memo(function OffenceSearchCell({
   }
 
   function handleFocus() {
-    if (value) return; // already selected — don't re-open
     updatePosition();
     setOpen(true);
-    fetchResults(query);
+    if (query.trim()) fetchResults(query);
   }
 
   function handleSelect(r: OffenceResult) {
-    onChange(r.offence);
+    if (selected.includes(r.offence)) return;
+    onChange([...selected, r.offence]);
     setQuery("");
-    setOpen(false);
     setResults([]);
+    updatePosition();
+    setOpen(true);
   }
 
-  function handleClear() {
-    onChange("");
+  function handleAddManual() {
+    const trimmed = query.trim();
+    if (!trimmed || selected.includes(trimmed)) return;
+    onChange([...selected, trimmed]);
     setQuery("");
-    setOpen(false);
     setResults([]);
+    updatePosition();
+    setOpen(true);
   }
 
-  // ── Selected state ──────────────────────────────────────────────────────────
-  if (value) {
-    return (
-      <Box
-        sx={{
-          display: "flex",
-          alignItems: "flex-start",
-          gap: 0.75,
-          border: "1px solid #B6D4BE",
-          borderRadius: 1,
-          px: 1.25,
-          py: 0.75,
-          bgcolor: "#F0F7F2",
-          minHeight: 34,
-        }}
-      >
-        <CheckCircle2
-          size={14}
-          color="#395B45"
-          style={{ marginTop: 2, flexShrink: 0 }}
-        />
-        <Typography
-          sx={{
-            flex: 1,
-            fontSize: "0.8rem",
-            color: "#1a3a25",
-            lineHeight: 1.45,
-            wordBreak: "break-word",
-          }}
-        >
-          {value}
-        </Typography>
-        {!disabled && (
-          <Tooltip title="Clear and search again">
-            <IconButton
-              size="small"
-              onClick={handleClear}
+  function handleRemove(offence: string) {
+    onChange(selected.filter((o) => o !== offence));
+  }
+
+  // Results filtered to exclude already-selected offences
+  const filteredResults = results.filter((r) => !selected.includes(r.offence));
+  // Show manual-add option when query doesn't exactly match any result
+  const showManualAdd = query.trim().length > 0 && !selected.includes(query.trim());
+
+  return (
+    <Box ref={inputRef} sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
+      {/* Selected offence chips */}
+      {selected.length > 0 && (
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
+          {selected.map((offence, i) => (
+            <Box
+              key={i}
               sx={{
-                p: 0.25,
-                flexShrink: 0,
-                color: "#9CA3AF",
-                "&:hover": { color: "#EF4444", bgcolor: "transparent" },
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 0.75,
+                border: "1px solid #B6D4BE",
+                borderRadius: 1,
+                px: 1,
+                py: 0.5,
+                bgcolor: "#F0F7F2",
               }}
             >
-              <X size={13} />
-            </IconButton>
-          </Tooltip>
-        )}
-      </Box>
-    );
-  }
+              <CheckCircle2 size={13} color="#395B45" style={{ marginTop: 2, flexShrink: 0 }} />
+              <Typography
+                sx={{
+                  flex: 1,
+                  fontSize: "0.78rem",
+                  color: "#1a3a25",
+                  lineHeight: 1.4,
+                  wordBreak: "break-word",
+                }}
+              >
+                {offence}
+              </Typography>
+              {!disabled && (
+                <Tooltip title="Remove">
+                  <IconButton
+                    size="small"
+                    onClick={() => handleRemove(offence)}
+                    sx={{
+                      p: 0.2,
+                      flexShrink: 0,
+                      color: "#9CA3AF",
+                      "&:hover": { color: "#EF4444", bgcolor: "transparent" },
+                    }}
+                  >
+                    <X size={12} />
+                  </IconButton>
+                </Tooltip>
+              )}
+            </Box>
+          ))}
+        </Box>
+      )}
 
-  // ── Search input + portal dropdown ──────────────────────────────────────────
-  return (
-    <Box ref={inputRef} sx={{ position: "relative" }}>
-      <TextField
-        fullWidth
-        size="small"
-        value={query}
-        placeholder={`Search ${placeholder}…`}
-        onChange={(e) => handleInputChange(e.target.value)}
-        onFocus={handleFocus}
-        disabled={disabled}
-        autoComplete="off"
-        slotProps={{
-          input: {
-            startAdornment: (
-              <InputAdornment position="start">
-                {loading ? (
-                  <CircularProgress size={13} sx={{ color: "#9CA3AF" }} />
-                ) : (
-                  <Search size={13} color="#9CA3AF" />
-                )}
-              </InputAdornment>
-            ),
-            sx: {
-              fontSize: "0.82rem",
-              "& input": { py: "6px" },
-              "& fieldset": { borderColor: "#D1D5DB" },
-              "&:hover fieldset": { borderColor: "#395B45 !important" },
-              "&.Mui-focused fieldset": {
-                borderColor: "#395B45 !important",
-                borderWidth: "1.5px !important",
+      {/* Search input — always visible so more offences can be added */}
+      {!disabled && (
+        <TextField
+          fullWidth
+          size="small"
+          value={query}
+          placeholder={selected.length > 0 ? `Add another ${placeholder}…` : `Search or type ${placeholder}…`}
+          onChange={(e) => handleInputChange(e.target.value)}
+          onFocus={handleFocus}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              handleAddManual();
+            }
+          }}
+          autoComplete="off"
+          slotProps={{
+            input: {
+              startAdornment: (
+                <InputAdornment position="start">
+                  {loading ? (
+                    <CircularProgress size={13} sx={{ color: "#9CA3AF" }} />
+                  ) : (
+                    <Search size={13} color="#9CA3AF" />
+                  )}
+                </InputAdornment>
+              ),
+              endAdornment: query.trim() ? (
+                <InputAdornment position="end" sx={{ gap: 0.25 }}>
+                  <IconButton
+                    size="small"
+                    onClick={() => { setQuery(""); setResults([]); }}
+                    sx={{ p: 0.3 }}
+                    tabIndex={-1}
+                  >
+                    <X size={12} color="#9CA3AF" />
+                  </IconButton>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    onMouseDown={(e) => { e.preventDefault(); handleAddManual(); }}
+                    sx={{
+                      minWidth: 0,
+                      px: 1,
+                      py: 0.2,
+                      fontSize: "0.7rem",
+                      fontWeight: 700,
+                      bgcolor: "#395B45",
+                      color: "#fff",
+                      borderRadius: 0.75,
+                      boxShadow: "none",
+                      textTransform: "none",
+                      "&:hover": { bgcolor: "#2d4a38", boxShadow: "none" },
+                    }}
+                  >
+                    Add
+                  </Button>
+                </InputAdornment>
+              ) : undefined,
+              sx: {
+                fontSize: "0.82rem",
+                "& input": { py: "6px" },
+                "& fieldset": { borderColor: "#D1D5DB" },
+                "&:hover fieldset": { borderColor: "#395B45 !important" },
+                "&.Mui-focused fieldset": {
+                  borderColor: "#395B45 !important",
+                  borderWidth: "1.5px !important",
+                },
               },
             },
-          },
-        }}
-      />
+          }}
+        />
+      )}
 
-      {/* Portal dropdown — renders at document root, never clips */}
+      {/* Portal dropdown */}
       {open &&
         createPortal(
           <div id="offence-search-portal" style={dropdownStyle}>
@@ -293,11 +340,10 @@ const OffenceSearchCell = memo(function OffenceSearchCell({
                 border: "1px solid #E5E7EB",
                 maxHeight: 300,
                 overflowY: "auto",
-                boxShadow:
-                  "0 8px 24px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.08)",
+                boxShadow: "0 8px 24px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.08)",
               }}
             >
-              {/* Header hint */}
+              {/* Header */}
               <Box
                 sx={{
                   px: 1.5,
@@ -310,99 +356,107 @@ const OffenceSearchCell = memo(function OffenceSearchCell({
                 }}
               >
                 <Search size={11} color="#9CA3AF" />
-                <Typography
-                  variant="caption"
-                  sx={{ color: "#9CA3AF", fontSize: "0.7rem" }}
-                >
+                <Typography variant="caption" sx={{ color: "#9CA3AF", fontSize: "0.7rem", flex: 1 }}>
                   {query.trim()
-                    ? `Showing results for "${query}"`
+                    ? `Results for "${query}"${selected.length > 0 ? ` · ${selected.length} selected` : ""}`
+                    : selected.length > 0
+                    ? `${selected.length} offence${selected.length > 1 ? "s" : ""} added — type to add more`
                     : "Type to search offences database"}
                 </Typography>
-                {loading && (
-                  <CircularProgress
-                    size={10}
-                    sx={{ color: "#395B45", ml: "auto" }}
-                  />
-                )}
+                {loading && <CircularProgress size={10} sx={{ color: "#395B45" }} />}
               </Box>
 
               {/* Results */}
-              {!loading && results.length === 0 ? (
+              {!loading && filteredResults.length === 0 && !showManualAdd ? (
                 <Box sx={{ px: 2, py: 2.5, textAlign: "center" }}>
-                  <Typography
-                    variant="caption"
-                    sx={{ color: "#9CA3AF", fontSize: "0.78rem" }}
-                  >
+                  <Typography variant="caption" sx={{ color: "#9CA3AF", fontSize: "0.78rem" }}>
                     {query.trim()
-                      ? "No offences found. Try different terms."
+                      ? results.length > 0
+                        ? "All matching offences already added."
+                        : "No offences found."
                       : "Start typing to search…"}
                   </Typography>
                 </Box>
               ) : (
-                results.map((r, idx) => (
-                  <Box
-                    key={r.id}
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      handleSelect(r);
-                    }}
-                    sx={{
-                      px: 1.5,
-                      py: 1,
-                      cursor: "pointer",
-                      borderBottom:
-                        idx < results.length - 1 ? "1px solid #F3F4F6" : "none",
-                      transition: "background-color 0.1s",
-                      "&:hover": { bgcolor: "#F0F7F2" },
-                    }}
-                  >
-                    <Typography
+                <>
+                  {filteredResults.map((r, idx) => (
+                    <Box
+                      key={r.id}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        handleSelect(r);
+                      }}
                       sx={{
-                        fontSize: "0.82rem",
-                        color: "#111827",
-                        lineHeight: 1.45,
-                        fontWeight: 500,
+                        px: 1.5,
+                        py: 1,
+                        cursor: "pointer",
+                        borderBottom: "1px solid #F3F4F6",
+                        transition: "background-color 0.1s",
+                        "&:hover": { bgcolor: "#F0F7F2" },
                       }}
                     >
-                      {r.offence}
-                    </Typography>
-                    {(r.category || r.type) && (
-                      <Box
-                        sx={{
-                          display: "flex",
-                          gap: 0.75,
-                          mt: 0.25,
-                          alignItems: "center",
-                        }}
-                      >
-                        {r.category && (
-                          <Typography
-                            variant="caption"
-                            sx={{
-                              fontSize: "0.67rem",
-                              color: "#395B45",
-                              bgcolor: "#E5EDE8",
-                              px: 0.6,
-                              py: 0.1,
-                              borderRadius: 0.5,
-                              fontWeight: 600,
-                            }}
-                          >
-                            {r.category}
-                          </Typography>
-                        )}
-                        {r.type && (
-                          <Typography
-                            variant="caption"
-                            sx={{ fontSize: "0.67rem", color: "#9CA3AF" }}
-                          >
-                            {r.type}
-                          </Typography>
-                        )}
+                      <Typography sx={{ fontSize: "0.82rem", color: "#111827", lineHeight: 1.45, fontWeight: 500 }}>
+                        {r.offence}
+                      </Typography>
+                      {(r.category || r.type) && (
+                        <Box sx={{ display: "flex", gap: 0.75, mt: 0.25, alignItems: "center" }}>
+                          {r.category && (
+                            <Typography
+                              variant="caption"
+                              sx={{
+                                fontSize: "0.67rem",
+                                color: "#395B45",
+                                bgcolor: "#E5EDE8",
+                                px: 0.6,
+                                py: 0.1,
+                                borderRadius: 0.5,
+                                fontWeight: 600,
+                              }}
+                            >
+                              {r.category}
+                            </Typography>
+                          )}
+                          {r.type && (
+                            <Typography variant="caption" sx={{ fontSize: "0.67rem", color: "#9CA3AF" }}>
+                              {r.type}
+                            </Typography>
+                          )}
+                        </Box>
+                      )}
+                    </Box>
+                  ))}
+
+                  {/* Manual add option at the bottom of dropdown */}
+                  {showManualAdd && (
+                    <Box
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        handleAddManual();
+                      }}
+                      sx={{
+                        px: 1.5,
+                        py: 1,
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 1,
+                        borderTop: filteredResults.length > 0 ? "1px solid #E5E7EB" : "none",
+                        bgcolor: "#F7FBF8",
+                        "&:hover": { bgcolor: "#EBF2EC" },
+                      }}
+                    >
+                      <Plus size={13} color="#395B45" style={{ flexShrink: 0 }} />
+                      <Box>
+                        <Typography sx={{ fontSize: "0.8rem", color: "#395B45", fontWeight: 600 }}>
+                          Add &quot;{query.trim()}&quot;
+                        </Typography>
+                        <Typography sx={{ fontSize: "0.67rem", color: "#9CA3AF" }}>
+                          Add as custom offence · or press Enter
+                        </Typography>
                       </Box>
-                    )}
-                  </Box>
-                ))
+                    </Box>
+                  )}
+                </>
               )}
             </Paper>
           </div>,
@@ -441,7 +495,7 @@ const RepeaterField = memo(function RepeaterField({
 
   const currentRows = safeRows();
 
-  function handleCellChange(rowIndex: number, colName: string, val: string) {
+  function handleCellChange(rowIndex: number, colName: string, val: string | string[]) {
     const updated = currentRows.map((r, i) =>
       i === rowIndex ? { ...r, [colName]: val } : r
     );
@@ -558,7 +612,7 @@ const RepeaterField = memo(function RepeaterField({
               sx={{
                 display: "grid",
                 gridTemplateColumns: colTemplate,
-                alignItems: "center",
+                alignItems: "start",
                 px: 1.5,
                 py: 1,
                 gap: 1,
@@ -579,6 +633,7 @@ const RepeaterField = memo(function RepeaterField({
                   alignItems: "center",
                   justifyContent: "center",
                   flexShrink: 0,
+                  mt: "3px",
                 }}
               >
                 <Typography
@@ -598,7 +653,7 @@ const RepeaterField = memo(function RepeaterField({
                 <Box key={sf.name}>
                   {sf.type === "offence_search" ? (
                     <OffenceSearchCell
-                      value={row[sf.name] ?? ""}
+                      value={Array.isArray(row[sf.name]) ? (row[sf.name] as string[]) : row[sf.name] ? [row[sf.name] as string] : []}
                       placeholder={sf.label}
                       onChange={(val) => handleCellChange(rowIdx, sf.name, val)}
                       disabled={readOnly}
@@ -607,7 +662,7 @@ const RepeaterField = memo(function RepeaterField({
                     <FormControl fullWidth size="small" disabled={readOnly}>
                       <Select
                         displayEmpty
-                        value={row[sf.name] ?? ""}
+                        value={(row[sf.name] as string) ?? ""}
                         onChange={(e) =>
                           handleCellChange(rowIdx, sf.name, e.target.value)
                         }
@@ -641,7 +696,7 @@ const RepeaterField = memo(function RepeaterField({
                     <TextField
                       fullWidth
                       size="small"
-                      value={row[sf.name] ?? ""}
+                      value={(row[sf.name] as string) ?? ""}
                       placeholder={sf.label}
                       onChange={(e) =>
                         handleCellChange(rowIdx, sf.name, e.target.value)
@@ -751,10 +806,39 @@ export const DynamicField = memo(function DynamicField({
 }: DynamicFieldProps) {
   const strValue = typeof value === "string" ? value : "";
   const boolValue = typeof value === "boolean" ? value : false;
-  const rowsValue: RepeaterRow[] = Array.isArray(value)
-    ? (value as RepeaterRow[])
+  // string[] for offence_search standalone; RepeaterRow[] for repeater
+  const arrValue = Array.isArray(value) ? value : [];
+  const offenceValues: string[] = arrValue.length === 0 || typeof arrValue[0] === "string"
+    ? (arrValue as string[])
+    : [];
+  const rowsValue: RepeaterRow[] = arrValue.length > 0 && typeof arrValue[0] === "object"
+    ? (arrValue as RepeaterRow[])
     : [];
   const labelText = field.field_label + (field.is_required ? " *" : "");
+
+  if (field.field_type === "offence_search") {
+    return (
+      <Box>
+        <Typography
+          variant="body2"
+          sx={{ fontWeight: 600, color: "#374151", mb: 0.75, fontSize: "0.875rem" }}
+        >
+          {labelText}
+        </Typography>
+        <OffenceSearchCell
+          value={offenceValues}
+          placeholder={field.field_label}
+          onChange={(val) => onChange(field.field_key, val)}
+          disabled={readOnly}
+        />
+        {error && (
+          <Typography variant="caption" color="error" sx={{ mt: 0.5, display: "block" }}>
+            {error}
+          </Typography>
+        )}
+      </Box>
+    );
+  }
 
   if (field.field_type === "repeater") {
     return (

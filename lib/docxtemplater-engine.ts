@@ -172,6 +172,7 @@ export type RepeaterRow = Record<string, string>;
 function sanitiseCell(val: unknown): string {
   if (val === null || val === undefined) return "";
   if (typeof val === "boolean") return val ? "Yes" : "No";
+  if (Array.isArray(val)) return val.map(String).join("\n");
   return String(val);
 }
 
@@ -179,6 +180,7 @@ function sanitiseCell(val: unknown): string {
 function sanitiseScalar(val: unknown): string {
   if (val === null || val === undefined) return "";
   if (typeof val === "boolean") return val ? "Yes" : "No";
+  if (Array.isArray(val)) return val.map(String).join("\n");
   return String(val);
 }
 
@@ -219,8 +221,12 @@ export async function generateFromTemplate(
   const arrays: Record<string, RepeaterRow[]> = {};
 
   for (const [key, val] of Object.entries(data)) {
-    if (Array.isArray(val)) {
+    if (Array.isArray(val) && val.length > 0 && typeof val[0] === "object" && val[0] !== null) {
+      // object[] → repeater field
       arrays[key] = sanitiseRepeater(val);
+    } else if (Array.isArray(val)) {
+      // string[] (or empty []) → offence_search standalone field → join as scalar
+      scalars[key] = sanitiseScalar(val);
     } else {
       scalars[key] = sanitiseScalar(val);
     }
