@@ -37,7 +37,11 @@ type FormValues = Record<string, FieldValue>;
 
 function initFormValues(fields: TemplateFieldDef[]): FormValues {
   const v: FormValues = {};
-  for (const f of fields) v[f.field_key] = f.field_type === "checkbox" ? false : "";
+  for (const f of fields) {
+    if (f.field_type === "checkbox") v[f.field_key] = false;
+    else if (f.field_type === "repeater" || f.field_type === "offence_search") v[f.field_key] = [];
+    else v[f.field_key] = "";
+  }
   return v;
 }
 
@@ -125,7 +129,13 @@ function AdminDocumentBuilderContent() {
           .order("field_order");
         if (fError) throw fError;
 
-        const fields = (fieldsData ?? []) as TemplateFieldDef[];
+        const fields = (fieldsData ?? []).map((f: any): TemplateFieldDef => ({
+          ...f,
+          // Ensure repeater field_options are always a valid array of sub-field objects
+          field_options: f.field_type === "repeater"
+            ? (Array.isArray(f.field_options) ? f.field_options : [])
+            : (f.field_options ?? null),
+        }));
         setTemplateFields(fields);
 
         const base = initFormValues(fields);

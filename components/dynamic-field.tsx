@@ -36,7 +36,7 @@ import { Plus, Trash2, Search, X, CheckCircle2 } from "lucide-react";
 export interface RepeaterSubField {
   name: string;
   label: string;
-  type: "text" | "dropdown" | "offence_search";
+  type: "text" | "dropdown" | "date" | "offence_search";
   options?: string[];
 }
 
@@ -68,8 +68,15 @@ interface DynamicFieldProps {
 
 function parseSubFields(raw: TemplateFieldDef["field_options"]): RepeaterSubField[] {
   if (!Array.isArray(raw) || raw.length === 0) return [];
-  if (typeof raw[0] === "object" && raw[0] !== null) return raw as RepeaterSubField[];
-  return [];
+  if (typeof raw[0] !== "object" || raw[0] === null) return [];
+  // Normalise each sub-field to guarantee required fields are present
+  const validTypes = ["text", "dropdown", "date", "offence_search"] as const;
+  return (raw as any[]).map((sf) => ({
+    name: sf.name ?? sf.key ?? "",
+    label: sf.label ?? (sf.name ?? "").split("_").map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(" "),
+    type: validTypes.includes(sf.type) ? sf.type as RepeaterSubField["type"] : "text",
+    options: Array.isArray(sf.options) ? sf.options : [],
+  })).filter((sf) => sf.name !== "");
 }
 
 function emptyRow(subFields: RepeaterSubField[]): RepeaterRow {
@@ -658,6 +665,29 @@ const RepeaterField = memo(function RepeaterField({
                       onChange={(val) => handleCellChange(rowIdx, sf.name, val)}
                       disabled={readOnly}
                     />
+                  ) : sf.type === "date" ? (
+                    <LocalizationProvider dateAdapter={AdapterDayjs}>
+                      <DatePicker
+                        value={(row[sf.name] as string) ? dayjs(row[sf.name] as string) : null}
+                        onChange={(val) =>
+                          handleCellChange(rowIdx, sf.name, val ? val.format("YYYY-MM-DD") : "")
+                        }
+                        disabled={readOnly}
+                        slotProps={{
+                          textField: {
+                            size: "small",
+                            fullWidth: true,
+                            placeholder: sf.label,
+                            sx: {
+                              "& .MuiInputBase-input": { fontSize: "0.82rem", py: "6px" },
+                              "& fieldset": { borderColor: "#D1D5DB" },
+                              "&:hover fieldset": { borderColor: "#395B45 !important" },
+                              "&.Mui-focused fieldset": { borderColor: "#395B45 !important" },
+                            },
+                          },
+                        }}
+                      />
+                    </LocalizationProvider>
                   ) : sf.type === "dropdown" ? (
                     <FormControl fullWidth size="small" disabled={readOnly}>
                       <Select

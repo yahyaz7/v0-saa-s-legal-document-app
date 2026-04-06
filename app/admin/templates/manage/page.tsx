@@ -59,7 +59,7 @@ interface DetectedField {
 interface RepeaterSubFieldConfig {
   name: string;
   label: string;
-  type: "text" | "dropdown" | "offence_search";
+  type: "text" | "dropdown" | "date" | "offence_search";
   options?: string[];
   _optionsRaw?: string;
 }
@@ -245,6 +245,7 @@ function RepeaterSubFieldEditor({
                       sx={{ fontSize: "0.8rem" }}
                     >
                       <MenuItem value="text" sx={{ fontSize: "0.8rem" }}>Text</MenuItem>
+                      <MenuItem value="date" sx={{ fontSize: "0.8rem" }}>Date</MenuItem>
                       <MenuItem value="dropdown" sx={{ fontSize: "0.8rem" }}>Dropdown</MenuItem>
                     </Select>
                   </FormControl>
@@ -355,16 +356,30 @@ function ManageTemplateContent() {
         if (version) {
           setVersionId(version.id);
           if (version.form_heading) setFormHeading(version.form_heading);
-          const mapped: DetectedField[] = (dbFields ?? []).map((f: any) => ({
-            id: f.id ?? crypto.randomUUID(),
-            field_name: f.field_key,
-            field_label: f.field_label,
-            field_type: f.field_type,
-            is_required: f.is_required,
-            field_options: f.field_options ?? [],
-            supports_phrase_bank: f.supports_phrase_bank,
-            section_heading: f.section_heading ?? "",
-          }));
+          const mapped: DetectedField[] = (dbFields ?? []).map((f: any) => {
+            // Normalise field_options for repeater fields so sub-field editor renders correctly.
+            // Ensures each sub-field has a valid `type`, `name`, `label`, and `options`.
+            let fieldOptions: any[] = f.field_options ?? [];
+            if (f.field_type === "repeater" && Array.isArray(fieldOptions)) {
+              fieldOptions = fieldOptions.map((sf: any) => ({
+                name: sf.name ?? sf.key ?? "",
+                label: sf.label ?? (sf.name ?? "").split("_").map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(" "),
+                type: (["text", "dropdown", "date", "offence_search"].includes(sf.type) ? sf.type : "text") as RepeaterSubFieldConfig["type"],
+                options: sf.options ?? [],
+                ...(sf._optionsRaw !== undefined ? { _optionsRaw: sf._optionsRaw } : {}),
+              }));
+            }
+            return {
+              id: f.id ?? crypto.randomUUID(),
+              field_name: f.field_key,
+              field_label: f.field_label,
+              field_type: f.field_type,
+              is_required: f.is_required,
+              field_options: fieldOptions,
+              supports_phrase_bank: f.supports_phrase_bank,
+              section_heading: f.section_heading ?? "",
+            };
+          });
           setFields(mapped);
           // Auto-expand repeater fields
           const repeaterIds = new Set(mapped.filter((f) => f.field_type === "repeater").map((f) => f.id));

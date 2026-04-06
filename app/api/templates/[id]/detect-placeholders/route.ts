@@ -69,8 +69,9 @@ export async function POST(
   // ── Regex constants ──────────────────────────────────────────────────────────
   const PARA_RE          = /<w:p[\s>][\s\S]*?<\/w:p>/g;
   const TEXT_RE          = /<w:t[^>]*>([\s\S]*?)<\/w:t>/g;
-  const PH_RE            = /\{([a-z][a-z0-9_]*)\}/g;     // {scalar}
-  const LOOP_OPEN_RE     = /\{#([a-z][a-z0-9_]*)\}/g;    // {#loop}
+  // Allow uppercase letters and digit-leading names (e.g. {arrest_VA}, {2nd_tel_no})
+  const PH_RE            = /\{([a-zA-Z0-9][a-zA-Z0-9_]*)\}/g;   // {scalar}
+  const LOOP_OPEN_RE     = /\{#([a-zA-Z][a-zA-Z0-9_]*)\}/g;      // {#loop}
   const TITLE_STYLE_RE   = /<w:pStyle[^>]+w:val="Title"/;
   const HEADING_STYLE_RE = /<w:pStyle[^>]+w:val="[Hh]eading\d"/;
 
@@ -81,6 +82,14 @@ export async function POST(
     let m: RegExpExecArray | null;
     while ((m = re.exec(paraXml)) !== null) text += m[1];
     return text;
+  }
+
+  /**
+   * Normalize spaces inside {placeholder} tokens so that Word-inserted space runs
+   * like "{ travel _time_2}" become "{travel_time_2}".
+   */
+  function normalizePlaceholders(text: string): string {
+    return text.replace(/\{([^}]+)\}/g, (_, inner) => `{${inner.replace(/\s+/g, "")}}`);
   }
 
   /**
@@ -100,28 +109,59 @@ export async function POST(
    * Returns a map of loopName → ordered list of unique sub-field variable names.
    */
   function extractLoopSubFields(xml: string): Map<string, string[]> {
-    const text = fullDocText(xml);
+    // Normalize spaces inside placeholders first
+    const rawText = fullDocText(xml);
+    const text = normalizePlaceholders(rawText);
     const result = new Map<string, string[]>();
 
-    // Match {#loopName}(content){/loopName} — non-greedy
-    const loopRe = /\{#([a-z][a-z0-9_]*)\}([\s\S]*?)\{\/\1\}/g;
-    let loopMatch: RegExpExecArray | null;
+    // Strategy: find every {#loopName} open tag, then scan forward for the matching
+    // close tag {/loopName}. To handle typos in close tags (e.g. {/witnessees} instead
+    // of {/witnesses}), we also accept a close tag whose name starts with the loop name
+    // prefix OR shares ≥ 70% character similarity.
+    const openRe = /\{#([a-zA-Z][a-zA-Z0-9_]*)\}/g;
+    let openMatch: RegExpExecArray | null;
 
-    while ((loopMatch = loopRe.exec(text)) !== null) {
-      const loopName = loopMatch[1];
-      const loopContent = loopMatch[2];
+    while ((openMatch = openRe.exec(text)) !== null) {
+      const loopName = openMatch[1];
+      const contentStart = openMatch.index + openMatch[0].length;
 
-      const subFields: string[] = [];
-      const subRe = /\{([a-z][a-z0-9_]*)\}/g;
-      let subMatch: RegExpExecArray | null;
+      // Find close tag: exact match first, then fuzzy (typo-tolerant)
+      const exactClose = new RegExp(`\\{\\/${loopName}\\}`, "g");
+      exactClose.lastIndex = contentStart;
+      let closeMatch = exactClose.exec(text);
+      let contentEnd = closeMatch ? closeMatch.index : -1;
 
-      while ((subMatch = subRe.exec(loopContent)) !== null) {
-        if (!subFields.includes(subMatch[1])) {
-          subFields.push(subMatch[1]);
+      if (contentEnd === -1) {
+        // Fuzzy: find any {/xxx} where xxx starts with loopName[0..4] (common prefix)
+        const prefix = loopName.slice(0, Math.max(4, Math.floor(loopName.length * 0.7)));
+        const fuzzyClose = new RegExp(`\\{\\/([a-zA-Z][a-zA-Z0-9_]*)\\}`, "g");
+        fuzzyClose.lastIndex = contentStart;
+        let fm: RegExpExecArray | null;
+        while ((fm = fuzzyClose.exec(text)) !== null) {
+          const closeName = fm[1];
+          // Accept if close name starts with the same prefix as loop name
+          if (closeName.toLowerCase().startsWith(prefix.toLowerCase())) {
+            contentEnd = fm.index;
+            break;
+          }
         }
       }
 
-      // Merge if the same loop name appears multiple times (e.g. open/close across docs)
+      // If still no close, take up to 2000 chars as the loop content (best-effort)
+      const loopContent = contentEnd !== -1
+        ? text.slice(contentStart, contentEnd)
+        : text.slice(contentStart, contentStart + 2000);
+
+      const subFields: string[] = [];
+      const subRe = /\{([a-zA-Z0-9][a-zA-Z0-9_]*)\}/g;
+      let subMatch: RegExpExecArray | null;
+      while ((subMatch = subRe.exec(loopContent)) !== null) {
+        const sf = subMatch[1];
+        if (!sf.startsWith("#") && !sf.startsWith("/") && !subFields.includes(sf)) {
+          subFields.push(sf);
+        }
+      }
+
       if (result.has(loopName)) {
         const existing = result.get(loopName)!;
         for (const sf of subFields) {
@@ -176,7 +216,8 @@ export async function POST(
   function scanXml(xml: string, includeHeadings: boolean) {
     const paragraphs = xml.match(PARA_RE) ?? [xml];
     for (const para of paragraphs) {
-      const text = paraText(para).trim();
+      // Normalize spaces inside {placeholder} tokens before any matching
+      const text = normalizePlaceholders(paraText(para).trim());
       if (!text) continue;
 
       // Document title detection
@@ -199,13 +240,12 @@ export async function POST(
         const loopName = loopMatch[1];
         if (!seenRepeaters.has(loopName)) {
           seenRepeaters.add(loopName);
-          // Attach the pre-extracted sub-fields (may be [] if loop spans multiple cells)
           const subFields = loopSubFieldMap.get(loopName) ?? [];
           items.push({ type: "repeater", value: loopName, subFields });
         }
       }
 
-      // Scalar placeholder detection — skip if it's a loop sub-field
+      // Scalar placeholder detection — skip loop control tags and loop sub-fields
       const phRe = new RegExp(PH_RE.source, "g");
       let phMatch: RegExpExecArray | null;
       while ((phMatch = phRe.exec(text)) !== null) {
