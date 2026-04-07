@@ -23,13 +23,6 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  TextField,
-  FormControl,
-  Select,
-  MenuItem,
-  Switch,
-  Alert,
-  CircularProgress,
 } from "@mui/material";
 import { FileText, Plus, Trash2, Eye, X, CheckCircle2, Pencil, PlayCircle, FilePlus } from "lucide-react";
 import Link from "next/link";
@@ -46,22 +39,6 @@ interface Template {
   versionCount: number;
 }
 
-interface EditableField {
-  field_key: string;
-  field_label: string;
-  field_type: string;
-  is_required: boolean;
-  field_options: string[] | null;
-  supports_phrase_bank: boolean;
-}
-
-const FIELD_TYPES = [
-  { value: "text", label: "Text" },
-  { value: "textarea", label: "Textarea" },
-  { value: "date", label: "Date" },
-  { value: "dropdown", label: "Dropdown" },
-  { value: "checkbox", label: "Checkbox" },
-];
 
 function AdminTemplatesContent() {
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -75,15 +52,6 @@ function AdminTemplatesContent() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
-
-  // Edit fields dialog
-  const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [editTemplate, setEditTemplate] = useState<Template | null>(null);
-  const [editFields, setEditFields] = useState<EditableField[]>([]);
-  const [editLoading, setEditLoading] = useState(false);
-  const [editSaving, setEditSaving] = useState(false);
-  const [editError, setEditError] = useState<string | null>(null);
-  const [editSuccess, setEditSuccess] = useState(false);
 
   useEffect(() => { fetchTemplates(); }, []);
 
@@ -110,60 +78,6 @@ function AdminTemplatesContent() {
     finally { setDeleting(false); setDeleteTargetId(null); }
   };
 
-  const openEditDialog = async (template: Template) => {
-    setEditTemplate(template);
-    setEditError(null);
-    setEditSuccess(false);
-    setEditFields([]);
-    setEditDialogOpen(true);
-    setEditLoading(true);
-    try {
-      const res = await fetch(`/api/templates/${template.id}/fields`);
-      const json = await res.json();
-      if (res.ok && json.data) setEditFields(json.data);
-      else setEditError("Failed to load fields.");
-    } catch {
-      setEditError("Failed to load fields.");
-    } finally {
-      setEditLoading(false);
-    }
-  };
-
-  const handleEditFieldChange = (
-    fieldKey: string,
-    prop: keyof EditableField,
-    value: unknown
-  ) => {
-    setEditFields((prev) =>
-      prev.map((f) => (f.field_key === fieldKey ? { ...f, [prop]: value } : f))
-    );
-  };
-
-  const handleSaveFields = async () => {
-    if (!editTemplate) return;
-    setEditSaving(true);
-    setEditError(null);
-    setEditSuccess(false);
-    try {
-      const res = await fetch(`/api/templates/${editTemplate.id}/fields`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fields: editFields }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Save failed");
-      setEditSuccess(true);
-      fetchTemplates();
-      setTimeout(() => {
-        setEditDialogOpen(false);
-        setEditSuccess(false);
-      }, 1200);
-    } catch (e: any) {
-      setEditError(e.message);
-    } finally {
-      setEditSaving(false);
-    }
-  };
 
   return (
     <Box>
@@ -318,7 +232,8 @@ function AdminTemplatesContent() {
                           <Tooltip title="Edit fields">
                             <IconButton
                               size="small"
-                              onClick={() => openEditDialog(template)}
+                              component={Link}
+                              href={`/admin/templates/manage?id=${template.id}`}
                               sx={{ color: "#395B45", "&:hover": { bgcolor: "#F0FDF4" } }}
                             >
                               <Pencil size={16} />
@@ -385,147 +300,6 @@ function AdminTemplatesContent() {
         <DialogActions sx={{ px: 3, py: 2 }}>
           <Button onClick={() => setPreviewOpen(false)} sx={{ color: "#6B7280", textTransform: "none", fontWeight: 600 }}>
             Close
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Edit fields dialog */}
-      <Dialog
-        open={editDialogOpen}
-        onClose={() => { setEditDialogOpen(false); setEditSuccess(false); setEditError(null); }}
-        maxWidth="md"
-        fullWidth
-        PaperProps={{ sx: { borderRadius: 3 } }}
-      >
-        <DialogTitle sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", pb: 1 }}>
-          <Box>
-            <Typography variant="h6" component="span" sx={{ fontWeight: 700, display: "block" }}>
-              Edit Fields — {editTemplate?.name}
-            </Typography>
-            <Typography variant="body2" sx={{ color: "#6B7280" }}>
-              Update labels, types and options. Field keys are fixed.
-            </Typography>
-          </Box>
-          <IconButton onClick={() => setEditDialogOpen(false)} size="small">
-            <X size={18} />
-          </IconButton>
-        </DialogTitle>
-
-        <DialogContent dividers sx={{ p: 0 }}>
-          {editError && (
-            <Alert severity="error" sx={{ m: 2 }}>{editError}</Alert>
-          )}
-          {editSuccess && (
-            <Alert severity="success" sx={{ m: 2 }}>Fields saved successfully.</Alert>
-          )}
-
-          {editLoading ? (
-            <Box sx={{ display: "flex", justifyContent: "center", py: 6 }}>
-              <CircularProgress size={28} />
-            </Box>
-          ) : editFields.length === 0 ? (
-            <Box sx={{ p: 4, textAlign: "center" }}>
-              <Typography variant="body2" sx={{ color: "#6B7280" }}>No fields found for this template.</Typography>
-            </Box>
-          ) : (
-            <Table size="small">
-              <TableHead sx={{ bgcolor: "#F9FAFB" }}>
-                <TableRow>
-                  <TableCell sx={{ fontWeight: 600, py: 1.5, pl: 2, color: "#374151" }}>Key (fixed)</TableCell>
-                  <TableCell sx={{ fontWeight: 600, color: "#374151" }}>Display Label</TableCell>
-                  <TableCell sx={{ fontWeight: 600, color: "#374151" }}>Type</TableCell>
-                  <TableCell sx={{ fontWeight: 600, color: "#374151" }}>Options (comma-sep)</TableCell>
-                  <TableCell align="center" sx={{ fontWeight: 600, color: "#374151" }}>Req</TableCell>
-                  <TableCell align="center" sx={{ fontWeight: 600, color: "#374151" }}>Phrase Bank</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {editFields.map((field) => (
-                  <TableRow key={field.field_key} hover>
-                    <TableCell sx={{ pl: 2 }}>
-                      <Chip
-                        label={field.field_key}
-                        size="small"
-                        sx={{ fontFamily: "monospace", bgcolor: "#F3F4F6", fontSize: "0.7rem" }}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <TextField
-                        size="small"
-                        fullWidth
-                        value={field.field_label}
-                        onChange={(e) => handleEditFieldChange(field.field_key, "field_label", e.target.value)}
-                        sx={{ minWidth: 160 }}
-                      />
-                    </TableCell>
-                    <TableCell sx={{ minWidth: 130 }}>
-                      <FormControl size="small" fullWidth>
-                        <Select
-                          value={field.field_type}
-                          onChange={(e) => handleEditFieldChange(field.field_key, "field_type", e.target.value)}
-                        >
-                          {FIELD_TYPES.map((t) => (
-                            <MenuItem key={t.value} value={t.value}>{t.label}</MenuItem>
-                          ))}
-                        </Select>
-                      </FormControl>
-                    </TableCell>
-                    <TableCell sx={{ minWidth: 180 }}>
-                      {field.field_type === "dropdown" ? (
-                        <TextField
-                          size="small"
-                          fullWidth
-                          placeholder="Yes, No, ..."
-                          value={(field.field_options ?? []).join(",")}
-                          onChange={(e) =>
-                            handleEditFieldChange(
-                              field.field_key,
-                              "field_options",
-                              e.target.value.split(",")
-                            )
-                          }
-                        />
-                      ) : (
-                        <Typography variant="caption" sx={{ color: "#9CA3AF" }}>—</Typography>
-                      )}
-                    </TableCell>
-                    <TableCell align="center">
-                      <input
-                        type="checkbox"
-                        checked={field.is_required}
-                        onChange={(e) => handleEditFieldChange(field.field_key, "is_required", e.target.checked)}
-                        style={{ width: 16, height: 16, accentColor: "#395B45" }}
-                      />
-                    </TableCell>
-                    <TableCell align="center">
-                      <Switch
-                        size="small"
-                        checked={field.supports_phrase_bank}
-                        onChange={(e) => handleEditFieldChange(field.field_key, "supports_phrase_bank", e.target.checked)}
-                        sx={{ "& .MuiSwitch-thumb": { bgcolor: field.supports_phrase_bank ? "#395B45" : undefined } }}
-                      />
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </DialogContent>
-
-        <DialogActions sx={{ px: 3, py: 2, gap: 1 }}>
-          <Button
-            onClick={() => setEditDialogOpen(false)}
-            sx={{ color: "#6B7280", textTransform: "none" }}
-          >
-            Cancel
-          </Button>
-          <Button
-            variant="contained"
-            disabled={editSaving || editLoading || editFields.length === 0}
-            onClick={handleSaveFields}
-            sx={{ bgcolor: "#395B45", "&:hover": { bgcolor: "#2D4A38" }, textTransform: "none", fontWeight: 600 }}
-          >
-            {editSaving ? <><CircularProgress size={14} sx={{ mr: 1 }} color="inherit" />Saving…</> : "Save Changes"}
           </Button>
         </DialogActions>
       </Dialog>
