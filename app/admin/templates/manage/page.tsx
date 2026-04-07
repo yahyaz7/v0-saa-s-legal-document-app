@@ -24,6 +24,7 @@ import {
   IconButton,
   Alert,
   LinearProgress,
+  Skeleton,
   Switch,
   Tooltip,
   Collapse,
@@ -86,7 +87,6 @@ interface RepeaterSubFieldEditorProps {
   onSubFieldOptionsBlur: (fieldId: string, colIdx: number, raw: string) => void;
   onAddSubField: (fieldId: string) => void;
   onRemoveSubField: (fieldId: string, colIdx: number) => void;
-  onToggleOffenceSearch: (fieldId: string, colIdx: number, enabled: boolean) => void;
 }
 
 function RepeaterSubFieldEditor({
@@ -97,7 +97,6 @@ function RepeaterSubFieldEditor({
   onSubFieldOptionsBlur,
   onAddSubField,
   onRemoveSubField,
-  onToggleOffenceSearch,
 }: RepeaterSubFieldEditorProps) {
   return (
     <Box
@@ -157,7 +156,7 @@ function RepeaterSubFieldEditor({
                   transition: "border-color 0.15s",
                 }}
               >
-                {/* Row: key + label + delete */}
+                {/* Row: badge + key + label + type select + options + delete */}
                 <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start", flexWrap: "wrap" }}>
                   {/* Column number badge */}
                   <Box
@@ -193,6 +192,27 @@ function RepeaterSubFieldEditor({
                     sx={{ flex: 1, minWidth: 120, "& .MuiInputBase-input": { fontSize: "0.8rem" } }}
                   />
 
+                  {/* Input Type — single unified Select with all 4 types */}
+                  <FormControl size="small" sx={{ minWidth: 150 }}>
+                    <InputLabel sx={{ fontSize: "0.78rem" }}>Input Type</InputLabel>
+                    <Select
+                      value={sf.type}
+                      label="Input Type"
+                      onChange={(e) => onSubFieldChange(fieldId, colIdx, "type", e.target.value)}
+                      sx={{ fontSize: "0.8rem" }}
+                    >
+                      <MenuItem value="text" sx={{ fontSize: "0.8rem" }}>Text</MenuItem>
+                      <MenuItem value="date" sx={{ fontSize: "0.8rem" }}>Date</MenuItem>
+                      <MenuItem value="dropdown" sx={{ fontSize: "0.8rem" }}>Dropdown</MenuItem>
+                      <MenuItem value="offence_search" sx={{ fontSize: "0.8rem" }}>
+                        <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+                          <Search size={12} color="#395B45" />
+                          Offence Search
+                        </Box>
+                      </MenuItem>
+                    </Select>
+                  </FormControl>
+
                   {/* Dropdown options — only shown when type is dropdown */}
                   {isDropdown && (
                     <TextField
@@ -207,11 +227,9 @@ function RepeaterSubFieldEditor({
                       onChange={(e) => onSubFieldOptionsChange(fieldId, colIdx, e.target.value)}
                       onBlur={(e) => onSubFieldOptionsBlur(fieldId, colIdx, e.target.value)}
                       helperText="Comma-separated"
-                      sx={{ width: 180, "& .MuiInputBase-input": { fontSize: "0.8rem" } }}
+                      sx={{ width: 200, "& .MuiInputBase-input": { fontSize: "0.8rem" } }}
                     />
                   )}
-
-                  <Box sx={{ flexGrow: 1 }} />
 
                   <Tooltip title="Remove this column">
                     <IconButton
@@ -224,68 +242,15 @@ function RepeaterSubFieldEditor({
                   </Tooltip>
                 </Box>
 
-                {/* Input type row — always stable layout */}
-                <Box
-                  sx={{
-                    display: "flex",
-                    alignItems: "center",
-                    mt: 1.25,
-                    pt: 1.25,
-                    borderTop: "1px solid #F3F4F6",
-                    gap: 2,
-                  }}
-                >
-                  {/* Input Type — always visible, disabled when offence search is on */}
-                  <FormControl size="small" sx={{ minWidth: 130 }} disabled={isOffenceSearch}>
-                    <InputLabel sx={{ fontSize: "0.78rem" }}>Input Type</InputLabel>
-                    <Select
-                      value={isOffenceSearch ? "text" : sf.type}
-                      label="Input Type"
-                      onChange={(e) => onSubFieldChange(fieldId, colIdx, "type", e.target.value)}
-                      sx={{ fontSize: "0.8rem" }}
-                    >
-                      <MenuItem value="text" sx={{ fontSize: "0.8rem" }}>Text</MenuItem>
-                      <MenuItem value="date" sx={{ fontSize: "0.8rem" }}>Date</MenuItem>
-                      <MenuItem value="dropdown" sx={{ fontSize: "0.8rem" }}>Dropdown</MenuItem>
-                    </Select>
-                  </FormControl>
-
-                  {/* Spacer pushes toggle to the right always */}
-                  <Box sx={{ flex: 1 }} />
-
-                  {/* Offence Search toggle — fixed position on the right */}
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexShrink: 0 }}>
-                    <Search size={13} color={isOffenceSearch ? "#395B45" : "#D1D5DB"} />
-                    <Typography
-                      variant="caption"
-                      sx={{
-                        fontSize: "0.75rem",
-                        fontWeight: isOffenceSearch ? 600 : 400,
-                        color: isOffenceSearch ? "#395B45" : "#6B7280",
-                        transition: "color 0.15s",
-                      }}
-                    >
-                      Offence Search
+                {/* Offence search hint */}
+                {isOffenceSearch && (
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mt: 1, pt: 1, borderTop: "1px solid #F3F4F6" }}>
+                    <Search size={12} color="#395B45" />
+                    <Typography variant="caption" sx={{ color: "#395B45", fontSize: "0.72rem" }}>
+                      Lawyers will search the offences database live — typed free text is also accepted.
                     </Typography>
-                    <Tooltip
-                      title={
-                        isOffenceSearch
-                          ? "Disable offence search — revert to plain text input"
-                          : "Enable live search from the offences database for this column"
-                      }
-                    >
-                      <Switch
-                        size="small"
-                        checked={isOffenceSearch}
-                        onChange={(e) => onToggleOffenceSearch(fieldId, colIdx, e.target.checked)}
-                        sx={{
-                          "& .MuiSwitch-switchBase.Mui-checked": { color: "#395B45" },
-                          "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track": { bgcolor: "#395B45" },
-                        }}
-                      />
-                    </Tooltip>
                   </Box>
-                </Box>
+                )}
               </Box>
             );
           })}
@@ -394,14 +359,28 @@ function ManageTemplateContent() {
   // ── Save and go back ──────────────────────────────────────────────────────────
   const handleSaveAndGoBack = async () => {
     if (templateId && fields.length > 0) {
-      const cleanedFields = fields.map((f) => ({
-        ...f,
-        field_label: f.field_label.trim(),
-        field_name: f.field_name.trim(),
-        field_options: f.field_options.map((o: any) =>
-          typeof o === "string" ? o.trim() : o
-        ).filter((o: any) => typeof o !== "string" || o !== ""),
-      }));
+      const cleanedFields = fields.map((f) => {
+        if (f.field_type === "repeater") {
+          return {
+            ...f,
+            field_label: f.field_label.trim(),
+            field_name: f.field_name.trim(),
+            field_options: (f.field_options as RepeaterSubFieldConfig[]).map(({ _optionsRaw, ...sf }: any) => {
+              // Flush any unsaved _optionsRaw into options
+              if (_optionsRaw !== undefined) {
+                sf.options = _optionsRaw.split(",").map((s: string) => s.trim()).filter(Boolean);
+              }
+              return sf;
+            }),
+          };
+        }
+        return {
+          ...f,
+          field_label: f.field_label.trim(),
+          field_name: f.field_name.trim(),
+          field_options: (f.field_options as string[]).map((o) => String(o).trim()).filter((o) => o !== ""),
+        };
+      });
       await fetch(`/api/templates/${templateId}/fields/setup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -590,20 +569,6 @@ function ManageTemplateContent() {
     );
   };
 
-  // Toggle offence search on/off for a specific sub-field
-  const handleToggleOffenceSearch = (fieldId: string, colIndex: number, enabled: boolean) => {
-    setFields((prev) =>
-      prev.map((f) => {
-        if (f.id !== fieldId) return f;
-        const updated = (f.field_options as RepeaterSubFieldConfig[]).map((sf, i) => {
-          if (i !== colIndex) return sf;
-          return { ...sf, type: enabled ? ("offence_search" as const) : ("text" as const) };
-        });
-        return { ...f, field_options: updated };
-      })
-    );
-  };
-
   const handleRemoveField = (id: string) => {
     setFields((prev) => prev.filter((f) => f.id !== id));
     setExpandedRepeaters((prev) => { const n = new Set(prev); n.delete(id); return n; });
@@ -713,8 +678,57 @@ function ManageTemplateContent() {
 
         {error && <Alert severity="error" sx={{ mb: 4, borderRadius: 2 }}>{error}</Alert>}
 
+        {/* ── Loading skeleton (edit mode while fetching from DB) ── */}
+        {loading && existingId && (
+          <Box>
+            {/* Form heading skeleton */}
+            <Box sx={{ textAlign: "center", mb: 4 }}>
+              <Skeleton variant="rounded" width={320} height={20} sx={{ mx: "auto", mb: 1.5 }} />
+              <Skeleton variant="rounded" width={560} height={56} sx={{ mx: "auto" }} />
+            </Box>
+
+            {/* Toolbar skeleton */}
+            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3 }}>
+              <Skeleton variant="rounded" width={180} height={24} />
+              <Skeleton variant="rounded" width={100} height={34} />
+            </Box>
+
+            {/* Table skeleton */}
+            <Box sx={{ border: "1px solid #E5E7EB", borderRadius: 2, overflow: "hidden" }}>
+              {/* Header */}
+              <Box sx={{ display: "flex", gap: 2, px: 2, py: 1.5, bgcolor: "#F9FAFB", borderBottom: "1px solid #E5E7EB" }}>
+                {[120, 200, 130, 180, 40, 60, 32].map((w, i) => (
+                  <Skeleton key={i} variant="rounded" width={w} height={18} />
+                ))}
+              </Box>
+              {/* Rows */}
+              {[1, 2, 3, 4, 5, 6].map((i) => (
+                <Box
+                  key={i}
+                  sx={{
+                    display: "flex",
+                    gap: 2,
+                    px: 2,
+                    py: 1.75,
+                    alignItems: "center",
+                    borderBottom: i < 6 ? "1px solid #F3F4F6" : "none",
+                  }}
+                >
+                  <Skeleton variant="rounded" width={120} height={24} sx={{ borderRadius: 4 }} />
+                  <Skeleton variant="rounded" width={200} height={36} />
+                  <Skeleton variant="rounded" width={130} height={36} />
+                  <Skeleton variant="rounded" width={180} height={20} />
+                  <Skeleton variant="circular" width={18} height={18} />
+                  <Skeleton variant="rounded" width={36} height={20} sx={{ borderRadius: 10 }} />
+                  <Skeleton variant="circular" width={28} height={28} />
+                </Box>
+              ))}
+            </Box>
+          </Box>
+        )}
+
         {/* ── Step 1: Upload ── */}
-        {activeStep === 0 && (
+        {activeStep === 0 && !loading && (
           <Box sx={{ maxWidth: 800, mx: "auto" }}>
             <Box sx={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
               <Box sx={{ flex: "1 1 300px" }}>
@@ -781,7 +795,7 @@ function ManageTemplateContent() {
         )}
 
         {/* ── Step 2: Configure Fields ── */}
-        {activeStep === 1 && (
+        {activeStep === 1 && !loading && (
           <Box>
             {/* Form heading */}
             <Box sx={{ textAlign: "center", mb: 4 }}>
@@ -980,7 +994,6 @@ function ManageTemplateContent() {
                                     onSubFieldOptionsBlur={handleSubFieldOptionsBlur}
                                     onAddSubField={handleAddSubField}
                                     onRemoveSubField={handleRemoveSubField}
-                                    onToggleOffenceSearch={handleToggleOffenceSearch}
                                   />
                                 </Box>
                               </Collapse>
@@ -1013,7 +1026,7 @@ function ManageTemplateContent() {
         )}
 
         {/* ── Step 3: Publish ── */}
-        {activeStep === 2 && (
+        {activeStep === 2 && !loading && (
           <Box sx={{ maxWidth: 600, mx: "auto", textAlign: "center" }}>
             <Box sx={{ mb: 4 }}>
               <Box sx={{ bgcolor: "rgba(57,91,69,0.1)", p: 3, borderRadius: "50%", display: "inline-flex", mb: 3 }}>
