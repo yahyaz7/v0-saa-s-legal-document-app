@@ -29,6 +29,7 @@ import {
   BookOpen,
   FolderOpen,
   BarChart2,
+  Scale,
 } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -39,6 +40,7 @@ const navItems = [
   { label: "Overview",      href: "/admin",                icon: LayoutDashboard },
   { label: "Templates",     href: "/admin/templates",      icon: FileText },
   { label: "Phrase Bank",   href: "/admin/phrase-bank",    icon: BookOpen },
+  { label: "Offences",      href: "/admin/offences",       icon: Scale },
   { label: "Documents",     href: "/admin/documents",      icon: FolderOpen },
   { label: "Analytics",     href: "/admin/analytics",      icon: BarChart2 },
   { label: "Team",          href: "/admin/users",          icon: Users },

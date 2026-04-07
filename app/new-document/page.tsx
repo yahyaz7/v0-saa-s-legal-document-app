@@ -153,7 +153,13 @@ function DocumentBuilderContent() {
 
         if (fError) throw fError;
 
-        const fields = (fieldsData ?? []) as TemplateFieldDef[];
+        const fields = (fieldsData ?? []).map((f: any): TemplateFieldDef => ({
+          ...f,
+          // Ensure repeater field_options are always a valid array of sub-field objects
+          field_options: f.field_type === "repeater"
+            ? (Array.isArray(f.field_options) ? f.field_options : [])
+            : (f.field_options ?? null),
+        }));
         setTemplateFields(fields);
 
         // 3. Initialise form values (optionally hydrated from a saved draft)
