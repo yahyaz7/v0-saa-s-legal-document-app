@@ -1,8 +1,3 @@
--- Drop unused tables that were superseded by the current architecture.
--- Kept: audit_logs (reserved for future audit trail implementation)
---
--- Dependency order: child tables first, then parents.
-
 -- document_versions depends on documents
 drop table if exists document_versions cascade;
 
