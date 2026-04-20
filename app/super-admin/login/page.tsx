@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Box,
   Card,
@@ -24,8 +24,16 @@ export default function SuperAdminLoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [formData, setFormData] = useState({ email: "", password: "" });
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  useEffect(() => {
+    const audio = new Audio("/login-tone.wav");
+    audio.preload = "auto";
+    audio.load();
+    audioRef.current = audio;
+  }, []);
+
+  const handleSubmit = async (e: React.SyntheticEvent) => {
     e.preventDefault();
     setError("");
     setLoading(true);
@@ -57,6 +65,9 @@ export default function SuperAdminLoginPage() {
         return;
       }
       router.push("/super-admin");
+      await new Promise((r) => setTimeout(r, 1500));
+      const audio = audioRef.current;
+      if (audio) { audio.currentTime = 0; audio.play().catch(() => {}); }
     }
 
     setLoading(false);
@@ -79,31 +90,19 @@ export default function SuperAdminLoginPage() {
           <CardContent sx={{ p: { xs: 3, sm: 4 } }}>
             {/* Branding — inside the card */}
             <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", mb: 3.5 }}>
-              <Box
-                sx={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  width: 52,
-                  height: 52,
-                  borderRadius: 2,
-                  bgcolor: "#395B45",
-                  mb: 1.5,
-                }}
-              >
-                <ShieldCheck size={26} color="#FFFFFF" strokeWidth={2} />
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 1 }}>
+                <Box sx={{ bgcolor: "#395B45", borderRadius: 1.5, p: 1, display: "flex", flexShrink: 0 }}>
+                  <ShieldCheck size={26} color="#FFFFFF" strokeWidth={2} />
+                </Box>
+                <Typography sx={{ fontWeight: 800, fontSize: "1.6rem", color: "#111827", letterSpacing: "-0.04em", lineHeight: 1.1 }}>
+                  Document Generation Tool
+                </Typography>
               </Box>
-              <Typography
-                variant="h5"
-                sx={{ fontWeight: 700, color: "#1A1A1A", letterSpacing: "-0.02em" }}
-              >
-                LegalDocs Pro
-              </Typography>
               <Chip
                 label="Super Admin Portal"
                 size="small"
                 sx={{
-                  mt: 1,
+                  mt: 0.5,
                   bgcolor: "rgba(57,91,69,0.1)",
                   color: "#395B45",
                   fontWeight: 600,
