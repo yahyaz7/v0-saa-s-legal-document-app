@@ -162,12 +162,13 @@ export default function ForgotPasswordPage() {
       {/* Footer */}
       <Box sx={{ px: 3, py: 2.5 }}>
         <Divider sx={{ mb: 2.5 }} />
-        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1.5 }}>
+        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 0.75 }}>
           <Typography sx={{ color: "#9CA3AF", fontSize: "0.8rem", letterSpacing: "0.02em" }}>
             Powered by
           </Typography>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/taqniya-logo.jpeg" alt="Taqniya" style={{ height: 32, objectFit: "contain", opacity: 0.7, borderRadius: 6 }} />
+          <Typography sx={{ color: "#395B45", fontSize: "1rem", fontWeight: 800, letterSpacing: "0.04em" }}>
+            ASG
+          </Typography>
         </Box>
       </Box>
     </Box>

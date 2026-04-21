@@ -124,8 +124,13 @@ export function AdminShell({ children }: { children: ReactNode }) {
             </Box>
           )}
           <Box sx={{ minWidth: 0 }}>
-            <Typography sx={{ color: "#395B45", fontWeight: 700, fontSize: "0.95rem", lineHeight: 1.2, letterSpacing: "-0.02em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {firmName ?? "LegalDocs Pro"}
+            <Typography
+              title={firmName ?? "LegalDocs Pro"}
+              sx={{ color: "#395B45", fontWeight: 700, fontSize: "0.95rem", lineHeight: 1.2, letterSpacing: "-0.02em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+            >
+              {firmName
+                ? firmName.split(/\s+/).map((w) => w[0]?.toUpperCase() ?? "").join("")
+                : "LegalDocs Pro"}
             </Typography>
             <Typography sx={{ color: "#9CA3AF", fontSize: "0.68rem", fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em" }}>
               Firm Admin

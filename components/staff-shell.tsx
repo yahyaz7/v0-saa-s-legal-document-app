@@ -126,12 +126,17 @@ export function StaffShell({ children }: { children: ReactNode }) {
                 </Box>
               )}
               <Box sx={{ minWidth: 0 }}>
-                <Typography sx={{
-                  color: "#395B45", fontWeight: 700, fontSize: "0.9rem", lineHeight: 1.2,
-                  letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}>
-                  {firmName}
+                <Typography
+                  title={firmName ?? undefined}
+                  sx={{
+                    color: "#395B45", fontWeight: 700, fontSize: "0.9rem", lineHeight: 1.2,
+                    letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {firmName
+                    ? firmName.split(/\s+/).map((w) => w[0]?.toUpperCase() ?? "").join("")
+                    : ""}
                 </Typography>
                 <Typography sx={{ color: "#9CA3AF", fontSize: "0.68rem", fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em" }}>
                   Staff Portal
