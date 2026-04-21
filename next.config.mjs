@@ -6,6 +6,10 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
+  experimental: {
+    optimizePackageImports: ["@mui/material", "@mui/icons-material", "lucide-react", "recharts"],
+  },
+  compress: true,
 }
 
 export default nextConfig

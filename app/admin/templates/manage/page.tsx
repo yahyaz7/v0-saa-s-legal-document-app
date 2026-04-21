@@ -305,6 +305,7 @@ function ManageTemplateContent() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
+  const [parseStage, setParseStage] = useState<string | null>(null);
 
   // ── Load existing draft ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -403,6 +404,7 @@ function ManageTemplateContent() {
     if (!uploadedFile || !templateName) return;
     setLoading(true);
     setError(null);
+    setParseStage("Uploading document…");
     let createdTemplateId: string | null = null;
     try {
       const formData = new FormData();
@@ -418,6 +420,7 @@ function ManageTemplateContent() {
       const newVersionId = uploadData.data.version_id;
       createdTemplateId = newTemplateId;
 
+      setParseStage("Parsing document structure…");
       const detectRes = await fetch(`/api/templates/${newTemplateId}/detect-placeholders`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -426,6 +429,7 @@ function ManageTemplateContent() {
       const detectData = await detectRes.json();
       if (!detectRes.ok) throw new Error(detectData.error || "Detection failed");
 
+      setParseStage("Extracting fields and placeholders…");
       setTemplateId(newTemplateId);
       setVersionId(newVersionId);
       createdTemplateId = null;
@@ -440,6 +444,9 @@ function ManageTemplateContent() {
         suggested_heading: string | null;
       };
       if (suggested_heading) setFormHeading(suggested_heading);
+
+      setParseStage("Building field configuration…");
+      await new Promise((r) => setTimeout(r, 350)); // let UI paint the stage
 
       let currentHeading = "";
       const initialFields: DetectedField[] = [];
@@ -481,8 +488,10 @@ function ManageTemplateContent() {
         }
       }
 
+      setParseStage("Ready!");
+      await new Promise((r) => setTimeout(r, 400));
       setFields(initialFields);
-      setExpandedRepeaters(newRepeaterIds); // auto-expand all detected repeaters
+      setExpandedRepeaters(newRepeaterIds);
       setActiveStep(1);
     } catch (err: any) {
       setError(err.message);
@@ -491,6 +500,7 @@ function ManageTemplateContent() {
       }
     } finally {
       setLoading(false);
+      setParseStage(null);
     }
   };
 
@@ -721,6 +731,57 @@ function ManageTemplateContent() {
                   <Skeleton variant="circular" width={18} height={18} />
                   <Skeleton variant="rounded" width={36} height={20} sx={{ borderRadius: 10 }} />
                   <Skeleton variant="circular" width={28} height={28} />
+                </Box>
+              ))}
+            </Box>
+          </Box>
+        )}
+
+        {/* ── Step 1: Upload loading state ── */}
+        {activeStep === 0 && loading && (
+          <Box sx={{ maxWidth: 480, mx: "auto", textAlign: "center", py: 8 }}>
+            <Box
+              sx={{
+                width: 72, height: 72, borderRadius: "50%",
+                bgcolor: "rgba(57,91,69,0.08)", display: "flex",
+                alignItems: "center", justifyContent: "center", mx: "auto", mb: 3,
+              }}
+            >
+              <FileText size={32} color="#395B45" />
+            </Box>
+            <Typography variant="h6" sx={{ fontWeight: 700, color: "#111827", mb: 0.75 }}>
+              Processing Template
+            </Typography>
+            <Typography variant="body2" sx={{ color: "#6B7280", mb: 4 }}>
+              {parseStage ?? "Please wait…"}
+            </Typography>
+            <LinearProgress
+              sx={{
+                borderRadius: 4, height: 6, bgcolor: "rgba(57,91,69,0.12)",
+                "& .MuiLinearProgress-bar": { bgcolor: "#395B45", borderRadius: 4 },
+              }}
+            />
+            <Box sx={{ mt: 4, display: "flex", flexDirection: "column", gap: 1.5 }}>
+              {[
+                { label: "Upload document", done: (parseStage ?? "") !== "Uploading document…" && parseStage !== null },
+                { label: "Parse document structure", done: ["Extracting fields and placeholders…", "Building field configuration…", "Ready!"].includes(parseStage ?? "") },
+                { label: "Extract fields & placeholders", done: ["Building field configuration…", "Ready!"].includes(parseStage ?? "") },
+                { label: "Build field configuration", done: parseStage === "Ready!" },
+              ].map(({ label, done }) => (
+                <Box key={label} sx={{ display: "flex", alignItems: "center", gap: 1.5, px: 2 }}>
+                  <Box
+                    sx={{
+                      width: 20, height: 20, borderRadius: "50%", flexShrink: 0,
+                      bgcolor: done ? "#395B45" : "rgba(57,91,69,0.12)",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      transition: "background-color 0.3s",
+                    }}
+                  >
+                    {done && <Check size={11} color="#fff" strokeWidth={3} />}
+                  </Box>
+                  <Typography variant="body2" sx={{ color: done ? "#111827" : "#9CA3AF", fontWeight: done ? 600 : 400, transition: "color 0.3s" }}>
+                    {label}
+                  </Typography>
                 </Box>
               ))}
             </Box>

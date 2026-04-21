@@ -9,7 +9,8 @@ import {
   Fade,
 } from "@mui/material";
 import { DynamicField, TemplateFieldDef, FieldValue } from "./dynamic-field";
-import PhraseBankSidebar from "./phrase-bank-sidebar";
+import dynamic from "next/dynamic";
+const PhraseBankSidebar = dynamic(() => import("./phrase-bank-sidebar"), { ssr: false });
 
 interface DynamicFormEngineProps {
   templateId?: string;

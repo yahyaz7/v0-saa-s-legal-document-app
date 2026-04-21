@@ -23,11 +23,16 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  CircularProgress,
 } from "@mui/material";
 import { FileText, Plus, Trash2, Eye, X, CheckCircle2, Pencil, PlayCircle, FilePlus } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
-import DynamicFormEngine from "@/components/dynamic-form-engine";
+import dynamic from "next/dynamic";
+const DynamicFormEngine = dynamic(() => import("@/components/dynamic-form-engine"), {
+  ssr: false,
+  loading: () => <Box sx={{ display: "flex", justifyContent: "center", py: 6 }}><CircularProgress size={28} sx={{ color: "#395B45" }} /></Box>,
+});
 
 interface Template {
   id: string;
