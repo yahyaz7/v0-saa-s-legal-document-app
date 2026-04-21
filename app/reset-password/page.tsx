@@ -71,7 +71,7 @@ export default function ResetPasswordPage() {
           <Scale size={28} color="#FFFFFF" />
         </Box>
         <Typography sx={{ fontWeight: 800, fontSize: "2rem", color: "#111827", letterSpacing: "-0.04em", lineHeight: 1.1 }}>
-          Document Generation Tool
+          LexDGT
         </Typography>
       </Box>
 

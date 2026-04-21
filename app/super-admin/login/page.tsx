@@ -95,7 +95,7 @@ export default function SuperAdminLoginPage() {
                   <ShieldCheck size={26} color="#FFFFFF" strokeWidth={2} />
                 </Box>
                 <Typography sx={{ fontWeight: 800, fontSize: "1.6rem", color: "#111827", letterSpacing: "-0.04em", lineHeight: 1.1 }}>
-                  Document Generation Tool
+                  LexDGT
                 </Typography>
               </Box>
               <Chip
