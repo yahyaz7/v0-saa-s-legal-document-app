@@ -19,6 +19,16 @@ interface DynamicFormEngineProps {
   readOnly?: boolean;
 }
 
+// Fields that get auto-filled when arrest_VA is set to V.A. or Arrest
+const ARREST_VA_AUTOFILL_KEYS = new Set([
+  "time_of_advice_call",
+  "delay_over_45",
+  "reasons_for_delay",
+  "left_details_with_custody",
+  "requested_for_interview",
+  "custody_record_checked",
+]);
+
 export default function DynamicFormEngine({
   templateId,
   initialData = {},
@@ -29,6 +39,9 @@ export default function DynamicFormEngine({
   const [formData, setFormData] = useState<Record<string, FieldValue>>(initialData);
   const [loading, setLoading] = useState(!!templateId);
   const [error, setError] = useState<string | null>(null);
+
+  // Tracks which field keys are currently locked by auto-fill
+  const [lockedKeys, setLockedKeys] = useState<Set<string>>(new Set());
 
   // Phrase Bank focus management
   const [focusedFieldKey, setFocusedFieldKey] = useState<string | null>(null);
@@ -71,7 +84,39 @@ export default function DynamicFormEngine({
   }
 
   function handleFieldChange(key: string, value: FieldValue) {
-    const next = { ...formData, [key]: value };
+    let next = { ...formData, [key]: value };
+
+    // Auto-populate and lock PACE form fields when arrest_VA changes
+    if (key === "arrest_VA") {
+      const normalized = typeof value === "string" ? value.replace(/\./g, "").trim().toUpperCase() : "";
+      if (normalized === "VA") {
+        next = {
+          ...next,
+          time_of_advice_call: "Advice call not claimed – attendance was for voluntary interview; advice provided in person.",
+          delay_over_45: "N/A - Always",
+          reasons_for_delay: "N/A",
+          left_details_with_custody: "N/A",
+          requested_for_interview: "Yes",
+          custody_record_checked: "N/A",
+        };
+        setLockedKeys(new Set(ARREST_VA_AUTOFILL_KEYS));
+      } else if (normalized === "ARREST") {
+        next = {
+          ...next,
+          time_of_advice_call: "Advice call completed @ enter time - client advised in respect of confidentiality, the PACE clock, and the procedure to be followed.",
+          delay_over_45: "N/A",
+          reasons_for_delay: "N/A",
+          left_details_with_custody: "N/A",
+          requested_for_interview: "Yes",
+          custody_record_checked: "Yes",
+        };
+        setLockedKeys(new Set(ARREST_VA_AUTOFILL_KEYS));
+      } else {
+        // User cleared the selection — unlock all auto-filled fields
+        setLockedKeys(new Set());
+      }
+    }
+
     setFormData(next);
     onDataChange?.(next);
   }
@@ -131,7 +176,7 @@ export default function DynamicFormEngine({
                 value={formData[field.field_key]}
                 onChange={handleFieldChange}
                 onFocus={handleFocus}
-                readOnly={readOnly}
+                readOnly={readOnly || lockedKeys.has(field.field_key)}
               />
             </Box>
           ))}

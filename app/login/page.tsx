@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import {
   Box,
   TextField,
@@ -16,6 +16,7 @@ import {
 import { Eye, EyeOff, Scale, Mail, Lock } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { preloadLoginSound, playLoginSound } from "@/lib/login-sound";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -23,14 +24,8 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [formData, setFormData] = useState({ email: "", password: "" });
-  const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  useEffect(() => {
-    const audio = new Audio("/login-tone.wav");
-    audio.preload = "auto";
-    audio.load();
-    audioRef.current = audio;
-  }, []);
+  useEffect(() => { preloadLoginSound(); }, []);
 
   const handleSubmit = async (e: React.SyntheticEvent) => {
     e.preventDefault();
@@ -60,8 +55,7 @@ export default function LoginPage() {
     const dest = role === "super_admin" ? "/super-admin" : role === "admin" ? "/admin" : "/";
     router.push(dest);
     await new Promise((r) => setTimeout(r, 1500));
-    const audio = audioRef.current;
-    if (audio) { audio.currentTime = 0; audio.play().catch(() => {}); }
+    playLoginSound();
   };
 
   return (

@@ -77,6 +77,7 @@ function AdminDocumentBuilderContent() {
   const [formValues, setFormValues]   = useState<FormValues>({});
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
+  const [lockedKeys, setLockedKeys] = useState<Set<string>>(new Set());
   const [draftId, setDraftId]       = useState<string | null>(draftParam);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [docxStatus, setDocxStatus] = useState<"idle" | "generating" | "done" | "error">("idle");
@@ -177,9 +178,44 @@ function AdminDocumentBuilderContent() {
     return result;
   }, [templateFields]);
 
+  // ── Auto-fill rules for arrest_VA field ───────────────────────────────────
+  const PACE_AUTOFILL_KEYS = ["time_of_advice_call","delay_over_45","reasons_for_delay","left_details_with_custody","requested_for_interview","custody_record_checked"];
+
+  const PACE_AUTOFILL: Record<string, Record<string, string>> = {
+    VA: {
+      time_of_advice_call: "Advice call not claimed – attendance was for voluntary interview; advice provided in person.",
+      delay_over_45: "N/A - Always",
+      reasons_for_delay: "N/A",
+      left_details_with_custody: "N/A",
+      requested_for_interview: "Yes",
+      custody_record_checked: "N/A",
+    },
+    ARREST: {
+      time_of_advice_call: "Advice call completed @ enter time - client advised in respect of confidentiality, the PACE clock, and the procedure to be followed.",
+      delay_over_45: "N/A",
+      reasons_for_delay: "N/A",
+      left_details_with_custody: "N/A",
+      requested_for_interview: "Yes",
+      custody_record_checked: "Yes",
+    },
+  };
+
   // ── Form handlers ──────────────────────────────────────────────────────────
   function handleFieldChange(key: string, value: FieldValue) {
-    setFormValues((prev) => ({ ...prev, [key]: value }));
+    if (key === "arrest_VA") {
+      const normalized = typeof value === "string" ? value.replace(/\./g, "").trim().toUpperCase() : "";
+      const autofill = PACE_AUTOFILL[normalized];
+      if (autofill) {
+        setFormValues((prev) => ({ ...prev, [key]: value, ...autofill }));
+        setLockedKeys(new Set(PACE_AUTOFILL_KEYS));
+      } else {
+        const cleared = Object.fromEntries(PACE_AUTOFILL_KEYS.map((k) => [k, ""]));
+        setFormValues((prev) => ({ ...prev, [key]: value, ...cleared }));
+        setLockedKeys(new Set());
+      }
+    } else {
+      setFormValues((prev) => ({ ...prev, [key]: value }));
+    }
     if (fieldErrors[key]) setFieldErrors((prev) => { const n = { ...prev }; delete n[key]; return n; });
   }
 
@@ -384,6 +420,7 @@ function AdminDocumentBuilderContent() {
                           onFocus={handleFieldFocus}
                           onBlur={handleFieldBlur}
                           error={fieldErrors[field.field_key]}
+                          readOnly={lockedKeys.has(field.field_key)}
                         />
                       </Grid>
                     ))}
