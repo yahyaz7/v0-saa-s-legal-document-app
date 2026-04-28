@@ -7,8 +7,9 @@ const nextConfig = {
     unoptimized: true,
   },
   experimental: {
-    optimizePackageImports: ["@mui/material", "@mui/icons-material", "lucide-react", "recharts"],
+    optimizePackageImports: ["@mui/material", "lucide-react", "recharts"],
   },
+  serverExternalPackages: ["@google-cloud/documentai"],
   compress: true,
 }
 

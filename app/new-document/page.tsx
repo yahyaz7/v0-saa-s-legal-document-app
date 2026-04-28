@@ -22,11 +22,12 @@ import {
   DialogContent,
   DialogActions,
 } from "@mui/material";
-import { FileDown, Save, Check, ChevronDown, Plus } from "lucide-react";
+import { FileDown, Save, Check, ChevronDown, Plus, Sparkles } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { DynamicField, TemplateFieldDef, FieldValue } from "@/components/dynamic-field";
 import { saveDraft, loadDraft, DraftFormData } from "@/lib/drafts";
+import AutoFillUploader from "@/components/AutoFillUploader";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -108,6 +109,10 @@ function DocumentBuilderContent() {
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
   // Last known cursor position in a phrase-bank textarea — used for targeted insertion
   const [cursorPos, setCursorPos] = useState<{ key: string; start: number; end: number } | null>(null);
+
+  // Auto-fill uploader
+  const [autoFillOpen, setAutoFillOpen] = useState(false);
+  const [autoFilledKeys, setAutoFilledKeys] = useState<Set<string>>(new Set());
 
   // Add Phrase dialog
   const [addPhraseOpen, setAddPhraseOpen] = useState(false);
@@ -346,6 +351,19 @@ function DocumentBuilderContent() {
     }
   }
 
+  // ── Auto-fill apply ────────────────────────────────────────────────────────
+  function handleAutoFillApply(values: Record<string, string>, keys: Set<string>) {
+    setFormValues((prev) => ({ ...prev, ...values }));
+    setAutoFilledKeys(keys);
+    // Clear validation errors for newly filled fields
+    setFieldErrors((prev) => {
+      const next = { ...prev };
+      for (const k of keys) delete next[k];
+      return next;
+    });
+    showSnackbar(`Auto-filled ${keys.size} field${keys.size !== 1 ? "s" : ""} from document.`, "success");
+  }
+
   // ── Snackbar helper ────────────────────────────────────────────────────────
   function showSnackbar(message: string, severity: "success" | "error") {
     setSnackbarMessage(message);
@@ -432,14 +450,32 @@ function DocumentBuilderContent() {
   return (
     <Box sx={{ pb: 10 }}>
       {/* Header */}
-      <Box sx={{ mb: 4 }}>
-        <Typography variant="h4" sx={{ fontWeight: 600, mb: 1, color: "#1A1A1A" }}>
-          New Document
-        </Typography>
-        <Typography variant="body1" sx={{ color: "#666666" }}>
-          {draftParam ? "Editing saved draft — " : "Using template: "}
-          <strong>{templateName || (loading ? "Loading…" : "Unknown")}</strong>
-        </Typography>
+      <Box sx={{ mb: 4, display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: 2 }}>
+        <Box>
+          <Typography variant="h4" sx={{ fontWeight: 600, mb: 1, color: "#1A1A1A" }}>
+            New Document
+          </Typography>
+          <Typography variant="body1" sx={{ color: "#666666" }}>
+            {draftParam ? "Editing saved draft — " : "Using template: "}
+            <strong>{templateName || (loading ? "Loading…" : "Unknown")}</strong>
+          </Typography>
+        </Box>
+        {!loading && !fetchError && templateFields.length > 0 && (
+          <Button
+            variant="outlined"
+            startIcon={<Sparkles size={16} />}
+            onClick={() => setAutoFillOpen(true)}
+            sx={{
+              borderColor: "#395B45",
+              color: "#395B45",
+              fontWeight: 600,
+              textTransform: "none",
+              "&:hover": { borderColor: "#2D4A38", bgcolor: "rgba(57,91,69,0.04)" },
+            }}
+          >
+            Auto-fill from Document
+          </Button>
+        )}
       </Box>
 
       {loading && (
@@ -483,6 +519,7 @@ function DocumentBuilderContent() {
                           onBlur={handleFieldBlur}
                           error={fieldErrors[field.field_key]}
                           readOnly={lockedKeys.has(field.field_key)}
+                          autoFilled={autoFilledKeys.has(field.field_key)}
                         />
                       </Grid>
                     ))}
@@ -840,6 +877,18 @@ function DocumentBuilderContent() {
           {snackbarMessage}
         </Alert>
       </Snackbar>
+
+      {/* Auto-fill uploader dialog */}
+      <AutoFillUploader
+        open={autoFillOpen}
+        onClose={() => setAutoFillOpen(false)}
+        templateFields={templateFields.map((f) => ({
+          field_key: f.field_key,
+          field_label: f.field_label,
+          field_type: f.field_type,
+        }))}
+        onApply={handleAutoFillApply}
+      />
     </Box>
   );
 }

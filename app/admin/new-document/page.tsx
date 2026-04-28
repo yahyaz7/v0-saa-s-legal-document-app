@@ -23,11 +23,12 @@ import {
   DialogActions,
   IconButton,
 } from "@mui/material";
-import { FileDown, Save, Check, ChevronDown, Plus, ArrowLeft } from "lucide-react";
+import { FileDown, Save, Check, ChevronDown, Plus, ArrowLeft, Sparkles } from "lucide-react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { DynamicField, TemplateFieldDef, FieldValue } from "@/components/dynamic-field";
 import { saveDraft, loadDraft, DraftFormData } from "@/lib/drafts";
+import AutoFillUploader from "@/components/AutoFillUploader";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -94,6 +95,10 @@ function AdminDocumentBuilderContent() {
   const [addPhraseOpen, setAddPhraseOpen]   = useState(false);
   const [addPhraseForm, setAddPhraseForm]   = useState({ category_id: "", label: "", phrase_text: "" });
   const [addPhraseSaving, setAddPhraseSaving] = useState(false);
+
+  // Auto-fill
+  const [autoFillOpen, setAutoFillOpen]     = useState(false);
+  const [autoFilledKeys, setAutoFilledKeys] = useState<Set<string>>(new Set());
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -294,6 +299,17 @@ function AdminDocumentBuilderContent() {
     }
   }
 
+  function handleAutoFillApply(values: Record<string, string>, keys: Set<string>) {
+    setFormValues((prev) => ({ ...prev, ...values }));
+    setAutoFilledKeys(keys);
+    setFieldErrors((prev) => {
+      const next = { ...prev };
+      for (const k of keys) delete next[k];
+      return next;
+    });
+    showSnackbar(`Auto-filled ${keys.size} field${keys.size !== 1 ? "s" : ""} from document.`, "success");
+  }
+
   function showSnackbar(message: string, severity: "success" | "error") {
     setSnackbarMessage(message);
     setSnackbarSeverity(severity);
@@ -364,7 +380,7 @@ function AdminDocumentBuilderContent() {
   return (
     <Box sx={{ pb: 10 }}>
       {/* Header */}
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 3 }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 3, flexWrap: "wrap" }}>
         <IconButton
           onClick={() => router.push("/admin/documents")}
           size="small"
@@ -372,7 +388,7 @@ function AdminDocumentBuilderContent() {
         >
           <ArrowLeft size={16} />
         </IconButton>
-        <Box>
+        <Box sx={{ flex: 1 }}>
           <Typography variant="h5" sx={{ fontWeight: 700, color: "#111827", lineHeight: 1.2 }}>
             {draftParam ? "Continue Draft" : "New Document"}
           </Typography>
@@ -381,6 +397,22 @@ function AdminDocumentBuilderContent() {
             <strong>{templateName || (loading ? "Loading…" : "Unknown")}</strong>
           </Typography>
         </Box>
+        {!loading && !fetchError && templateFields.length > 0 && (
+          <Button
+            variant="outlined"
+            startIcon={<Sparkles size={16} />}
+            onClick={() => setAutoFillOpen(true)}
+            sx={{
+              borderColor: "#395B45",
+              color: "#395B45",
+              fontWeight: 600,
+              textTransform: "none",
+              "&:hover": { borderColor: "#2D4A38", bgcolor: "rgba(57,91,69,0.04)" },
+            }}
+          >
+            Auto-fill from Document
+          </Button>
+        )}
       </Box>
 
       {loading && (
@@ -421,6 +453,7 @@ function AdminDocumentBuilderContent() {
                           onBlur={handleFieldBlur}
                           error={fieldErrors[field.field_key]}
                           readOnly={lockedKeys.has(field.field_key)}
+                          autoFilled={autoFilledKeys.has(field.field_key)}
                         />
                       </Grid>
                     ))}
@@ -599,6 +632,18 @@ function AdminDocumentBuilderContent() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Auto-fill uploader dialog */}
+      <AutoFillUploader
+        open={autoFillOpen}
+        onClose={() => setAutoFillOpen(false)}
+        templateFields={templateFields.map((f) => ({
+          field_key: f.field_key,
+          field_label: f.field_label,
+          field_type: f.field_type,
+        }))}
+        onApply={handleAutoFillApply}
+      />
 
       {/* Feedback snackbar */}
       <Snackbar open={snackbarOpen} autoHideDuration={3500} onClose={() => setSnackbarOpen(false)} anchorOrigin={{ vertical: "bottom", horizontal: "center" }}>

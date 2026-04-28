@@ -1,6 +1,6 @@
 "use client";
 
-import {
+import React, {
   memo,
   useState,
   useEffect,
@@ -25,6 +25,7 @@ import {
   Paper,
   CircularProgress,
   InputAdornment,
+  Chip,
 } from "@mui/material";
 import { DatePicker, LocalizationProvider } from "@mui/x-date-pickers";
 import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
@@ -60,6 +61,7 @@ interface DynamicFieldProps {
   onChange: (key: string, value: FieldValue) => void;
   error?: string;
   readOnly?: boolean;
+  autoFilled?: boolean;
   onFocus?: (key: string) => void;
   onBlur?: (key: string, start: number, end: number) => void;
 }
@@ -823,6 +825,24 @@ const RepeaterField = memo(function RepeaterField({
   );
 });
 
+// ── Auto-fill wrapper ─────────────────────────────────────────────────────────
+
+function withAutoFill(children: React.ReactNode, autoFilled?: boolean) {
+  if (!autoFilled) return <>{children}</>;
+  return (
+    <Box sx={{ position: "relative" }}>
+      <Box sx={{ borderLeft: "3px solid #395B45", borderRadius: "4px", pl: 1, "& .MuiOutlinedInput-root": { "& fieldset": { borderColor: "#395B45" } } }}>
+        {children}
+      </Box>
+      <Chip
+        label="Auto-filled"
+        size="small"
+        sx={{ position: "absolute", top: -10, right: 0, bgcolor: "#395B45", color: "#fff", fontSize: 10, height: 18, "& .MuiChip-label": { px: 1 } }}
+      />
+    </Box>
+  );
+}
+
 // ── Main DynamicField ─────────────────────────────────────────────────────────
 
 export const DynamicField = memo(function DynamicField({
@@ -831,6 +851,7 @@ export const DynamicField = memo(function DynamicField({
   onChange,
   error,
   readOnly,
+  autoFilled,
   onFocus,
   onBlur,
 }: DynamicFieldProps) {
@@ -847,7 +868,7 @@ export const DynamicField = memo(function DynamicField({
   const labelText = field.field_label + (field.is_required ? " *" : "");
 
   if (field.field_type === "offence_search") {
-    return (
+    return withAutoFill(
       <Box>
         <Typography
           variant="body2"
@@ -866,12 +887,13 @@ export const DynamicField = memo(function DynamicField({
             {error}
           </Typography>
         )}
-      </Box>
+      </Box>,
+      autoFilled
     );
   }
 
   if (field.field_type === "repeater") {
-    return (
+    return withAutoFill(
       <Box>
         <Typography
           variant="body2"
@@ -886,12 +908,13 @@ export const DynamicField = memo(function DynamicField({
           error={error}
           readOnly={readOnly}
         />
-      </Box>
+      </Box>,
+      autoFilled
     );
   }
 
   if (field.field_type === "date") {
-    return (
+    return withAutoFill(
       <LocalizationProvider dateAdapter={AdapterDayjs}>
         <DatePicker
           label={labelText}
@@ -908,13 +931,14 @@ export const DynamicField = memo(function DynamicField({
             },
           }}
         />
-      </LocalizationProvider>
+      </LocalizationProvider>,
+      autoFilled
     );
   }
 
   if (field.field_type === "dropdown") {
     const opts = (field.field_options as string[] | null) ?? [];
-    return (
+    return withAutoFill(
       <FormControl fullWidth error={!!error} disabled={readOnly}>
         <InputLabel>{labelText}</InputLabel>
         <Select
@@ -932,12 +956,13 @@ export const DynamicField = memo(function DynamicField({
           ))}
         </Select>
         {error && <FormHelperText>{error}</FormHelperText>}
-      </FormControl>
+      </FormControl>,
+      autoFilled
     );
   }
 
   if (field.field_type === "checkbox") {
-    return (
+    return withAutoFill(
       <FormControl error={!!error} component="fieldset" disabled={readOnly}>
         <FormControlLabel
           control={
@@ -951,12 +976,13 @@ export const DynamicField = memo(function DynamicField({
           label={labelText}
         />
         {error && <FormHelperText>{error}</FormHelperText>}
-      </FormControl>
+      </FormControl>,
+      autoFilled
     );
   }
 
   if (field.field_type === "textarea") {
-    return (
+    return withAutoFill(
       <TextField
         fullWidth
         multiline
@@ -976,11 +1002,12 @@ export const DynamicField = memo(function DynamicField({
         error={!!error}
         helperText={error}
         disabled={readOnly}
-      />
+      />,
+      autoFilled
     );
   }
 
-  return (
+  return withAutoFill(
     <TextField
       fullWidth
       label={labelText}
@@ -989,6 +1016,7 @@ export const DynamicField = memo(function DynamicField({
       error={!!error}
       helperText={error}
       disabled={readOnly}
-    />
+    />,
+    autoFilled
   );
 });
