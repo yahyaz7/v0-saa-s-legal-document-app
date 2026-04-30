@@ -1,39 +1,42 @@
 "use client";
 
-import { useRef, useState, useCallback, useEffect } from "react";
+import {
+  useRef, useState, useCallback, useEffect, useMemo,
+} from "react";
 import {
   Dialog, DialogTitle, DialogContent, DialogActions,
   Box, Button, Typography, CircularProgress, Alert,
   Chip, TextField, Tooltip, IconButton, Paper,
   LinearProgress, List, ListItem, ListItemText,
-  Tabs, Tab,
+  Tabs, Tab, Select, MenuItem, FormControl,
+  Divider,
 } from "@mui/material";
 import {
-  Upload, X, FileText, CheckCircle, AlertCircle,
-  Info, Sparkles, Trash2, Eye, Camera, ZoomIn,
+  Upload, X, FileText, CheckCircle, AlertCircle, Info,
+  Sparkles, Trash2, Eye, Camera, ZoomIn, ArrowRight,
+  Link2, Link2Off, ChevronDown, Layers, Copy,
 } from "lucide-react";
+import type { LLMMapping } from "@/app/api/llm-map/route";
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface RepeaterSubField {
+  name: string;
+  label: string;
+  type: "text" | "dropdown" | "date" | "offence_search";
+  options?: string[];
+}
 
 export interface TplField {
   field_key: string;
   field_label: string;
   field_type: string;
-}
-
-interface MatchedField {
-  field_key: string;
-  field_label: string;
-  field_type: string;
-  value: string;
-  confidence: number;
-  source_label: string;
+  field_options?: RepeaterSubField[] | string[] | null;
 }
 
 interface ParseResponse {
-  matched: MatchedField[];
-  unmatched_template_keys: string[];
-  raw_pairs: Array<{ label: string; value: string }>;
   raw_text: string;
   extraction_method: string;
   warning?: string;
@@ -49,26 +52,60 @@ interface FileEntry {
   error: string;
 }
 
+/**
+ * Flat assignable target derived from template fields.
+ *   scalar  → assignedKey = "field_key"
+ *   repeater → assignedKey = "repeaterKey::subFieldName"
+ */
+interface MappingTarget {
+  assignedKey: string;
+  label: string;
+  fieldKey: string;
+  fieldType: string;
+  repeaterKey?: string;
+  subFieldName?: string;
+  subFieldType?: RepeaterSubField["type"];
+  repeaterLabel?: string;
+}
+
+interface MappingRow {
+  pairIndex: number;
+  label: string;
+  value: string;
+  suggestedKey: string;
+  suggestedConfidence: number;
+  suggestedReasoning: string;
+  assignedKey: string;
+}
+
+export type ApplyValues = Record<string, string | Record<string, string | string[]>[]>;
+
 interface Props {
   open: boolean;
   onClose: () => void;
   templateFields: TplField[];
-  onApply: (values: Record<string, string>, autoFilledKeys: Set<string>) => void;
+  onApply: (values: ApplyValues, autoFilledKeys: Set<string>) => void;
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Constants
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ACCEPTED = ".pdf,.doc,.docx,.jpg,.jpeg,.png,.txt";
+const IGNORE_VALUE = "" as const;
+const REPEATER_SEP = "::";
+type Phase = "upload" | "parsing" | "mapping" | "review";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pure helpers
+// ─────────────────────────────────────────────────────────────────────────────
 
 function confidenceLabel(c: number): string {
-  if (c >= 0.9) return "High";
-  if (c >= 0.75) return "Good";
-  if (c >= 0.6) return "Low";
-  return "Weak";
+  return c >= 0.9 ? "High" : "Good";
 }
 
-function confidenceColor(c: number): "success" | "warning" | "error" {
-  if (c >= 0.9) return "success";
-  if (c >= 0.75) return "warning";
-  return "error";
+function confidenceColor(c: number): "success" | "warning" {
+  return c >= 0.9 ? "success" : "warning";
 }
 
 function formatBytes(b: number): string {
@@ -78,78 +115,1000 @@ function formatBytes(b: number): string {
 }
 
 let _idCounter = 0;
-function uid(): string {
-  return `f-${Date.now()}-${++_idCounter}`;
+function uid(): string { return `f-${Date.now()}-${++_idCounter}`; }
+
+function parseSubFields(raw: TplField["field_options"]): RepeaterSubField[] {
+  if (!Array.isArray(raw) || raw.length === 0) return [];
+  if (typeof raw[0] !== "object" || raw[0] === null) return [];
+  const validTypes = ["text", "dropdown", "date", "offence_search"] as const;
+  return (raw as RepeaterSubField[])
+    .map((sf) => ({
+      name: sf.name ?? "",
+      label: sf.label ?? sf.name ?? "",
+      type: validTypes.includes(sf.type) ? sf.type : "text",
+      options: Array.isArray(sf.options) ? sf.options : [],
+    }))
+    .filter((sf) => sf.name !== "");
 }
 
-function mergeResults(results: ParseResponse[], templateFields: TplField[]): ParseResponse {
-  const best = new Map<string, MatchedField>();
-
-  for (const r of results) {
-    for (const m of r.matched) {
-      const existing = best.get(m.field_key);
-      if (!existing || m.confidence > existing.confidence) {
-        best.set(m.field_key, m);
+function buildMappingTargets(templateFields: TplField[]): MappingTarget[] {
+  const targets: MappingTarget[] = [];
+  for (const f of templateFields) {
+    if (f.field_type === "repeater") {
+      for (const sf of parseSubFields(f.field_options)) {
+        targets.push({
+          assignedKey:  `${f.field_key}${REPEATER_SEP}${sf.name}`,
+          label:        `${f.field_label} → ${sf.label}`,
+          fieldKey:     f.field_key,
+          fieldType:    f.field_type,
+          repeaterKey:  f.field_key,
+          subFieldName: sf.name,
+          subFieldType: sf.type,
+          repeaterLabel: f.field_label,
+        });
       }
+    } else if (f.field_type !== "offence_search") {
+      targets.push({
+        assignedKey: f.field_key,
+        label:       f.field_label,
+        fieldKey:    f.field_key,
+        fieldType:   f.field_type,
+      });
     }
   }
+  return targets;
+}
 
-  const matched = Array.from(best.values());
-  const matchedKeys = new Set(matched.map((m) => m.field_key));
-  const unmatched_template_keys = templateFields
-    .filter((f) => f.field_type !== "repeater" && f.field_type !== "offence_search")
-    .filter((f) => !matchedKeys.has(f.field_key))
-    .map((f) => f.field_key);
-
-  const allPairs = results.flatMap((r) => r.raw_pairs);
-  const methods = [...new Set(results.map((r) => r.extraction_method))].join(", ");
+/**
+ * Merge ParseResponse results from multiple files into one.
+ * Raw pairs are deduplicated by normalised label.
+ */
+function mergeResults(results: ParseResponse[]): ParseResponse {
+  const methods  = [...new Set(results.map((r) => r.extraction_method))].join(", ");
   const warnings = results.map((r) => r.warning).filter(Boolean) as string[];
-  const rawText = results.map((r) => r.raw_text ?? "").filter(Boolean).join("\n\n---\n\n");
-
+  const rawText  = results.map((r) => r.raw_text ?? "").filter(Boolean).join("\n\n---\n\n");
   return {
-    matched,
-    unmatched_template_keys,
-    raw_pairs: allPairs,
     raw_text: rawText,
     extraction_method: methods,
     warning: warnings.length > 0 ? warnings.join(" ") : undefined,
   };
 }
 
-const ACCEPTED = ".pdf,.doc,.docx,.jpg,.jpeg,.png,.txt";
+/**
+ * Seed mapping rows from LLM suggestions.
+ * One row per raw pair; LLM-suggested rows carry confidence and reasoning.
+ * Offence sub-field pairs are mapped to the repeater target matching "offence" or offence_search.
+ */
+function buildMappingRows(
+  targets: MappingTarget[],
+  llmMappings: LLMMapping[],
+): MappingRow[] {
+  return llmMappings.map((m, idx) => {
+    const target = targets.find((t) => t.assignedKey === m.field_key || t.fieldKey === m.field_key);
+    return {
+      pairIndex:           idx,
+      label:               target?.label ?? m.field_key,
+      value:               m.value,
+      suggestedKey:        target?.assignedKey ?? IGNORE_VALUE,
+      suggestedConfidence: m.confidence,
+      suggestedReasoning:  m.reasoning,
+      assignedKey:         target?.assignedKey ?? IGNORE_VALUE,
+    };
+  });
+}
 
-// ── Component ─────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Value assembly
+// ─────────────────────────────────────────────────────────────────────────────
+
+function coerceDateString(raw: string): string {
+  const iso = raw.match(/(\d{4}-\d{2}-\d{2})/);
+  if (iso) return iso[1];
+  const dmy = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+  if (dmy) return `${dmy[3]}-${dmy[2]}-${dmy[1]}`;
+  return raw;
+}
+
+function normPairLabel(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function assembleApplyValues(
+  mappedRows: MappingRow[],
+  editedValues: Record<string, string>,
+  excluded: Set<string>,
+  targets: MappingTarget[],
+): { values: ApplyValues; autoKeys: Set<string> } {
+  const values: ApplyValues = {};
+  const autoKeys = new Set<string>();
+  const targetMap = new Map(targets.map((t) => [t.assignedKey, t]));
+
+  // Collect repeater sub-field assignments grouped by parent key
+  const repeaterSubValues = new Map<string, Record<string, string>>();
+
+  for (const row of mappedRows) {
+    if (excluded.has(row.assignedKey)) continue;
+    const val = (editedValues[row.assignedKey] ?? row.value).trim();
+    if (!val) continue;
+
+    const target = targetMap.get(row.assignedKey);
+    if (!target) continue;
+
+    if (target.repeaterKey && target.subFieldName) {
+      if (!repeaterSubValues.has(target.repeaterKey)) {
+        repeaterSubValues.set(target.repeaterKey, {});
+      }
+      repeaterSubValues.get(target.repeaterKey)![target.subFieldName] = val;
+      autoKeys.add(target.repeaterKey);
+    } else {
+      values[target.fieldKey] = val;
+      autoKeys.add(target.fieldKey);
+    }
+  }
+
+  // Expand repeater sub-values into rows, splitting " | " into multiple rows
+  for (const [repKey, subMap] of repeaterSubValues) {
+    let maxSegments = 1;
+    const segmented: Record<string, string[]> = {};
+    for (const [sfName, sfVal] of Object.entries(subMap)) {
+      const parts = sfVal.split(" | ").map((s) => s.trim()).filter(Boolean);
+      segmented[sfName] = parts;
+      if (parts.length > maxSegments) maxSegments = parts.length;
+    }
+
+    const rows: Record<string, string>[] = [];
+    for (let r = 0; r < maxSegments; r++) {
+      const row: Record<string, string> = {};
+      for (const [sfName, parts] of Object.entries(segmented)) {
+        row[sfName] = parts[r] ?? parts[0] ?? "";
+      }
+      rows.push(row);
+    }
+    values[repKey] = rows;
+  }
+
+  return { values, autoKeys };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Step indicator
+// ─────────────────────────────────────────────────────────────────────────────
+
+const PHASE_STEPS: { id: Phase; label: string }[] = [
+  { id: "upload",  label: "Upload"  },
+  { id: "parsing", label: "Extract" },
+  { id: "mapping", label: "Map"     },
+  { id: "review",  label: "Review"  },
+];
+
+function StepIndicator({ current }: { current: Phase }) {
+  const currentIdx = PHASE_STEPS.findIndex((s) => s.id === current);
+  return (
+    <Box sx={{ display: "flex", alignItems: "center", mt: 1.5 }}>
+      {PHASE_STEPS.map((step, idx) => {
+        const done   = idx < currentIdx;
+        const active = idx === currentIdx;
+        return (
+          <Box key={step.id} sx={{ display: "flex", alignItems: "center", flex: idx < PHASE_STEPS.length - 1 ? 1 : "none" }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+              <Box sx={{
+                width: 22, height: 22, borderRadius: "50%",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                bgcolor: done || active ? "#395B45" : "#E5E7EB",
+                flexShrink: 0, transition: "background-color 0.2s",
+              }}>
+                {done
+                  ? <CheckCircle size={12} color="#fff" />
+                  : <Typography sx={{ fontSize: "0.65rem", fontWeight: 700, color: active ? "#fff" : "#9CA3AF" }}>{idx + 1}</Typography>
+                }
+              </Box>
+              <Typography sx={{
+                fontSize: "0.72rem", fontWeight: active ? 700 : 500,
+                color: done || active ? "#374151" : "#9CA3AF", whiteSpace: "nowrap",
+              }}>
+                {step.label}
+              </Typography>
+            </Box>
+            {idx < PHASE_STEPS.length - 1 && (
+              <Box sx={{ flex: 1, height: "1px", bgcolor: done ? "#395B45" : "#E5E7EB", mx: 1, transition: "background-color 0.2s" }} />
+            )}
+          </Box>
+        );
+      })}
+    </Box>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Upload phase
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface UploadPhaseProps {
+  files: FileEntry[];
+  uploadTab: "file" | "camera";
+  capturedPhotos: Array<{ id: string; dataUrl: string; file: File }>;
+  cameraActive: boolean;
+  cameraError: string;
+  videoRef: React.RefObject<HTMLVideoElement | null>;
+  canvasRef: React.RefObject<HTMLCanvasElement | null>;
+  inputRef: React.RefObject<HTMLInputElement | null>;
+  onTabChange: (tab: "file" | "camera") => void;
+  onAddFiles: (files: FileList | File[]) => void;
+  onRemoveFile: (id: string) => void;
+  onClearFiles: () => void;
+  onDrop: (e: React.DragEvent) => void;
+  onCapturePhoto: () => void;
+  onRemoveCapture: (id: string) => void;
+  onClearCaptures: () => void;
+  onConfirmCaptures: () => void;
+  onRetryCamera: () => void;
+  onExtract: () => void;
+}
+
+function UploadPhase({
+  files, uploadTab, capturedPhotos, cameraActive, cameraError,
+  videoRef, canvasRef, inputRef,
+  onTabChange, onAddFiles, onRemoveFile, onClearFiles,
+  onDrop, onCapturePhoto, onRemoveCapture, onClearCaptures,
+  onConfirmCaptures, onRetryCamera, onExtract,
+}: UploadPhaseProps) {
+  return (
+    <>
+      <Tabs value={uploadTab} onChange={(_, v) => onTabChange(v)}
+        sx={{
+          mb: 2, minHeight: 36,
+          "& .MuiTab-root": { minHeight: 36, textTransform: "none", fontWeight: 600, fontSize: "0.85rem" },
+          "& .MuiTabs-indicator": { bgcolor: "#395B45" },
+          "& .Mui-selected": { color: "#395B45 !important" },
+        }}
+      >
+        <Tab value="file" label={
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+            <Upload size={15} />Upload Files
+            {files.length > 0 && <Chip label={files.length} size="small" sx={{ height: 18, fontSize: "0.65rem", ml: 0.5, bgcolor: "#395B45", color: "#fff" }} />}
+          </Box>
+        } />
+        <Tab value="camera" label={
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+            <Camera size={15} />Camera
+            {capturedPhotos.length > 0 && <Chip label={capturedPhotos.length} size="small" sx={{ height: 18, fontSize: "0.65rem", ml: 0.5, bgcolor: "#395B45", color: "#fff" }} />}
+          </Box>
+        } />
+      </Tabs>
+
+      {uploadTab === "file" && (
+        <>
+          <Paper variant="outlined" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}
+            onClick={() => inputRef.current?.click()}
+            sx={{
+              border: "2px dashed", borderRadius: 2,
+              borderColor: files.length > 0 ? "#395B45" : "#D1D5DB",
+              bgcolor: files.length > 0 ? "rgba(57,91,69,0.04)" : "#FAFAFA",
+              p: 3, textAlign: "center", cursor: "pointer", transition: "all 0.2s",
+              "&:hover": { borderColor: "#395B45", bgcolor: "rgba(57,91,69,0.04)" },
+            }}
+          >
+            <input ref={inputRef} type="file" accept={ACCEPTED} multiple style={{ display: "none" }}
+              onChange={(e) => { if (e.target.files?.length) onAddFiles(e.target.files); e.target.value = ""; }}
+            />
+            <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
+              <Box sx={{ bgcolor: "#F3F4F6", borderRadius: "50%", p: 1.5, display: "flex" }}>
+                <Upload size={24} color="#9CA3AF" />
+              </Box>
+              <Box>
+                <Typography sx={{ fontWeight: 600, color: "#374151", fontSize: "0.95rem" }}>
+                  Drop files here or click to browse
+                </Typography>
+                <Typography variant="caption" sx={{ color: "#9CA3AF", display: "block", mt: 0.25 }}>
+                  PDF, DOCX, TXT, JPG, PNG · multiple files · max 10 MB each
+                </Typography>
+              </Box>
+            </Box>
+          </Paper>
+
+          {files.length > 0 && (
+            <Box sx={{ mt: 1.5 }}>
+              <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1 }}>
+                <Typography sx={{ fontWeight: 600, fontSize: "0.8rem", color: "#374151" }}>
+                  {files.length} file{files.length !== 1 ? "s" : ""} selected
+                </Typography>
+                <Button size="small" onClick={onClearFiles} sx={{ color: "#9CA3AF", textTransform: "none", fontSize: "0.75rem" }}>
+                  Clear all
+                </Button>
+              </Box>
+              <List dense disablePadding sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}>
+                {files.map((entry) => (
+                  <ListItem key={entry.id} disablePadding
+                    sx={{ bgcolor: "#F9FAFB", border: "1px solid #E5E7EB", borderRadius: 1.5, px: 1.5, py: 0.75, display: "flex", alignItems: "center", gap: 1 }}>
+                    <FileText size={16} color="#6B7280" style={{ flexShrink: 0 }} />
+                    <ListItemText primary={entry.file.name} secondary={formatBytes(entry.file.size)}
+                      primaryTypographyProps={{ fontSize: "0.82rem", fontWeight: 600, color: "#111827", noWrap: true }}
+                      secondaryTypographyProps={{ fontSize: "0.72rem", color: "#9CA3AF" }}
+                      sx={{ overflow: "hidden" }}
+                    />
+                    <IconButton size="small" onClick={(e) => { e.stopPropagation(); onRemoveFile(entry.id); }}
+                      sx={{ color: "#9CA3AF", "&:hover": { color: "#EF4444" }, flexShrink: 0 }}>
+                      <Trash2 size={14} />
+                    </IconButton>
+                  </ListItem>
+                ))}
+              </List>
+            </Box>
+          )}
+
+          <Box sx={{ mt: 2, p: 1.5, bgcolor: "#F0F9FF", borderRadius: 1.5, border: "1px solid #BAE6FD" }}>
+            <Typography variant="caption" sx={{ color: "#0369A1", fontWeight: 600, display: "block", mb: 0.5 }}>For best results:</Typography>
+            <Typography variant="caption" sx={{ color: "#0369A1", display: "block" }}>• Upload both custody record and interview notes together</Typography>
+            <Typography variant="caption" sx={{ color: "#0369A1", display: "block" }}>• DOCX and TXT give the most accurate extraction — PDFs and images use OCR</Typography>
+          </Box>
+        </>
+      )}
+
+      {uploadTab === "camera" && (
+        <Box>
+          {cameraError && (
+            <Alert severity="error" sx={{ mb: 2, borderRadius: 1.5 }}>
+              {cameraError}
+              <Button size="small" onClick={onRetryCamera} sx={{ ml: 1, textTransform: "none", fontWeight: 600, color: "#DC2626" }}>Retry</Button>
+            </Alert>
+          )}
+          {!cameraError && (
+            <Box sx={{ position: "relative", width: "100%", bgcolor: "#111827", borderRadius: 2, overflow: "hidden", mb: 1.5, aspectRatio: "16/9", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Box component="video" ref={videoRef} autoPlay playsInline muted
+                sx={{ width: "100%", height: "100%", objectFit: "cover", display: cameraActive ? "block" : "none" }} />
+              {!cameraActive && (
+                <Box sx={{ textAlign: "center", color: "#9CA3AF" }}>
+                  <CircularProgress size={32} sx={{ color: "#9CA3AF", mb: 1 }} />
+                  <Typography variant="body2">Starting camera…</Typography>
+                </Box>
+              )}
+              {cameraActive && (
+                <Box sx={{ position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)" }}>
+                  <Tooltip title="Take photo">
+                    <IconButton onClick={onCapturePhoto}
+                      sx={{ bgcolor: "#fff", width: 56, height: 56, border: "3px solid #395B45", "&:hover": { bgcolor: "#F0FDF4", transform: "scale(1.08)" }, transition: "all 0.15s" }}>
+                      <Camera size={26} color="#395B45" />
+                    </IconButton>
+                  </Tooltip>
+                </Box>
+              )}
+            </Box>
+          )}
+          <canvas ref={canvasRef} style={{ display: "none" }} />
+
+          {capturedPhotos.length > 0 && (
+            <Box sx={{ mb: 1.5 }}>
+              <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1 }}>
+                <Typography sx={{ fontWeight: 600, fontSize: "0.8rem", color: "#374151" }}>
+                  {capturedPhotos.length} photo{capturedPhotos.length !== 1 ? "s" : ""} captured
+                </Typography>
+                <Button size="small" onClick={onClearCaptures} sx={{ color: "#9CA3AF", textTransform: "none", fontSize: "0.75rem" }}>Clear all</Button>
+              </Box>
+              <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+                {capturedPhotos.map((p) => (
+                  <Box key={p.id} sx={{ position: "relative", width: 96, height: 72, borderRadius: 1.5, overflow: "hidden", border: "2px solid #BBF7D0", flexShrink: 0 }}>
+                    <Box component="img" src={p.dataUrl} alt="capture" sx={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    <IconButton size="small" onClick={() => onRemoveCapture(p.id)}
+                      sx={{ position: "absolute", top: 2, right: 2, bgcolor: "rgba(0,0,0,0.55)", color: "#fff", width: 20, height: 20, "&:hover": { bgcolor: "rgba(220,38,38,0.8)" } }}>
+                      <X size={11} />
+                    </IconButton>
+                  </Box>
+                ))}
+              </Box>
+            </Box>
+          )}
+
+          <Box sx={{ mt: 1, p: 1.5, bgcolor: "#F0F9FF", borderRadius: 1.5, border: "1px solid #BAE6FD" }}>
+            <Typography variant="caption" sx={{ color: "#0369A1", fontWeight: 600, display: "block", mb: 0.5 }}>Camera tips:</Typography>
+            <Typography variant="caption" sx={{ color: "#0369A1", display: "block" }}>• Hold the document flat with even lighting for best OCR accuracy</Typography>
+            <Typography variant="caption" sx={{ color: "#0369A1", display: "block" }}>• Capture each page separately, then press "Add to Queue"</Typography>
+          </Box>
+        </Box>
+      )}
+
+      <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 1, mt: 2 }}>
+        {uploadTab === "camera" && capturedPhotos.length > 0 && (
+          <Button variant="outlined" onClick={onConfirmCaptures} startIcon={<ZoomIn size={16} />}
+            sx={{ borderColor: "#395B45", color: "#395B45", fontWeight: 600, textTransform: "none" }}>
+            Add {capturedPhotos.length} Photo{capturedPhotos.length !== 1 ? "s" : ""} to Queue
+          </Button>
+        )}
+        <Button variant="contained" onClick={onExtract} disabled={files.length === 0}
+          startIcon={<Sparkles size={16} />}
+          sx={{ bgcolor: "#395B45", "&:hover": { bgcolor: "#2D4A38" }, fontWeight: 600, textTransform: "none", minWidth: 160 }}>
+          Extract Fields ({files.length})
+        </Button>
+      </Box>
+    </>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Parsing phase
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ParsingPhase({
+  files,
+  llmPending,
+  onViewDebug,
+}: {
+  files: FileEntry[];
+  llmPending: boolean;
+  onViewDebug: (e: FileEntry) => void;
+}) {
+  const parsed  = files.filter((f) => f.status === "done").length;
+  const errored = files.filter((f) => f.status === "error").length;
+  const total   = files.length;
+
+  return (
+    <Box>
+      <Box sx={{ textAlign: "center", py: 3 }}>
+        <CircularProgress sx={{ color: "#395B45", mb: 1.5 }} size={40} />
+        <Typography sx={{ fontWeight: 600, color: "#374151", mb: 0.5 }}>
+          {llmPending ? "Generating AI field mappings…" : `Analysing ${total} file${total !== 1 ? "s" : ""}…`}
+        </Typography>
+        <Typography variant="body2" sx={{ color: "#9CA3AF" }}>
+          {llmPending
+            ? "Sending extracted text to AI — this takes a few seconds"
+            : `${parsed} of ${total} complete${errored > 0 ? ` · ${errored} failed` : ""}`}
+        </Typography>
+        {!llmPending && (
+          <LinearProgress
+            variant="determinate"
+            value={total > 0 ? ((parsed + errored) / total) * 100 : 0}
+            sx={{ mt: 2, mx: "auto", maxWidth: 320, borderRadius: 4, bgcolor: "#E5E7EB", "& .MuiLinearProgress-bar": { bgcolor: "#395B45" } }}
+          />
+        )}
+      </Box>
+      <List dense disablePadding sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}>
+        {files.map((entry) => (
+          <ListItem key={entry.id} disablePadding
+            sx={{
+              bgcolor: "#F9FAFB", border: "1px solid",
+              borderColor: entry.status === "done" ? "#BBF7D0" : entry.status === "error" ? "#FECACA" : entry.status === "parsing" ? "#BAE6FD" : "#E5E7EB",
+              borderRadius: 1.5, px: 1.5, py: 0.75, gap: 1,
+            }}>
+            <Box sx={{ flexShrink: 0 }}>
+              {entry.status === "done"    && <CheckCircle size={16} color="#16A34A" />}
+              {entry.status === "error"   && <AlertCircle size={16} color="#DC2626" />}
+              {entry.status === "parsing" && <CircularProgress size={16} sx={{ color: "#0284C7" }} />}
+              {entry.status === "pending" && <FileText size={16} color="#9CA3AF" />}
+            </Box>
+            <ListItemText
+              primary={entry.file.name}
+              secondary={
+                entry.status === "error"   ? entry.error
+                : entry.status === "done"    ? "Text extracted"
+                : entry.status === "parsing" ? "Extracting text…"
+                : "Waiting…"
+              }
+              primaryTypographyProps={{ fontSize: "0.82rem", fontWeight: 600, color: "#111827", noWrap: true }}
+              secondaryTypographyProps={{ fontSize: "0.72rem", color: entry.status === "error" ? "#DC2626" : entry.status === "done" ? "#16A34A" : "#6B7280" }}
+            />
+            {entry.status === "done" && entry.result?.raw_text && (
+              <Tooltip title="View extracted text">
+                <IconButton size="small" onClick={() => onViewDebug(entry)}
+                  sx={{ color: "#6B7280", "&:hover": { color: "#395B45" }, flexShrink: 0 }}>
+                  <Eye size={15} />
+                </IconButton>
+              </Tooltip>
+            )}
+          </ListItem>
+        ))}
+      </List>
+    </Box>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Mapping phase
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface MappingPhaseProps {
+  rows: MappingRow[];
+  targets: MappingTarget[];
+  assignedKeys: Set<string>;
+  onAssign: (pairIndex: number, assignedKey: string) => void;
+  onConfirm: () => void;
+  onBack: () => void;
+  files: FileEntry[];
+  onViewDebug: (e: FileEntry) => void;
+}
+
+function MappingPhase({ rows, targets, assignedKeys, onAssign, onConfirm, onBack, files, onViewDebug }: MappingPhaseProps) {
+  const mappedCount  = rows.filter((r) => r.assignedKey !== IGNORE_VALUE).length;
+  const ignoredCount = rows.length - mappedCount;
+
+  const { scalarTargets, repeaterGroups } = useMemo(() => {
+    const scalars = targets.filter((t) => !t.repeaterKey).sort((a, b) => a.label.localeCompare(b.label));
+    const groupMap = new Map<string, { label: string; items: MappingTarget[] }>();
+    for (const t of targets) {
+      if (!t.repeaterKey) continue;
+      if (!groupMap.has(t.repeaterKey)) groupMap.set(t.repeaterKey, { label: t.repeaterLabel!, items: [] });
+      groupMap.get(t.repeaterKey)!.items.push(t);
+    }
+    return { scalarTargets: scalars, repeaterGroups: Array.from(groupMap.values()) };
+  }, [targets]);
+
+  return (
+    <Box>
+      <Box sx={{ display: "flex", gap: 1, mb: 2, flexWrap: "wrap", alignItems: "center" }}>
+        {files.filter((f) => f.status === "done").map((entry) => (
+          <Chip key={entry.id} icon={<CheckCircle size={12} />}
+            label={`${entry.file.name} · Text extracted`}
+            size="small" variant="outlined" color="success"
+            onClick={entry.result?.raw_text ? () => onViewDebug(entry) : undefined}
+            deleteIcon={entry.result?.raw_text ? <Eye size={12} /> : undefined}
+            onDelete={entry.result?.raw_text ? () => onViewDebug(entry) : undefined}
+            sx={{ fontSize: "0.7rem", height: 22 }}
+          />
+        ))}
+      </Box>
+
+      <Box sx={{ display: "flex", gap: 2, mb: 2, flexWrap: "wrap" }}>
+        {[
+          { value: rows.length,  label: "Extracted pairs",  color: "#374151" },
+          { value: mappedCount,  label: "AI-mapped fields", color: "#395B45" },
+          { value: ignoredCount, label: "Ignored",          color: "#9CA3AF" },
+        ].map(({ value, label, color }) => (
+          <Paper key={label} variant="outlined" sx={{ flex: 1, minWidth: 100, p: 1.25, borderRadius: 1.5, textAlign: "center" }}>
+            <Typography sx={{ fontSize: "1.4rem", fontWeight: 800, color, lineHeight: 1 }}>{value}</Typography>
+            <Typography variant="caption" sx={{ color: "#6B7280" }}>{label}</Typography>
+          </Paper>
+        ))}
+      </Box>
+
+      <Box sx={{ display: "grid", gridTemplateColumns: "1fr 28px 1fr", gap: 1, px: 1.5, mb: 0.75 }}>
+        <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: 0.5 }}>
+          Extracted from document
+        </Typography>
+        <Box />
+        <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: 0.5 }}>
+          Map to template field
+        </Typography>
+      </Box>
+
+      <Box sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}>
+        {rows.map((row) => {
+          const isMapped     = row.assignedKey !== IGNORE_VALUE;
+          const hasSuggestion = row.suggestedKey !== IGNORE_VALUE;
+          const target       = targets.find((t) => t.assignedKey === row.assignedKey);
+          const isRepeater   = Boolean(target?.repeaterKey);
+
+          return (
+            <Paper key={row.pairIndex} variant="outlined"
+              sx={{
+                display: "grid", gridTemplateColumns: "1fr 28px 1fr",
+                gap: 1, p: 1.25, borderRadius: 1.5,
+                borderColor: isMapped ? (isRepeater ? "#C7D2FE" : "#BBF7D0") : "#E5E7EB",
+                bgcolor: isMapped ? (isRepeater ? "#EEF2FF" : "#F0FDF4") : "#FAFAFA",
+                alignItems: "center", transition: "all 0.15s",
+              }}
+            >
+              <Box sx={{ minWidth: 0 }}>
+                <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: "#374151", mb: 0.25, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {row.label}
+                </Typography>
+                <Typography sx={{ fontSize: "0.75rem", color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {row.value}
+                </Typography>
+                {row.suggestedReasoning && isMapped && row.assignedKey === row.suggestedKey && (
+                  <Typography sx={{ fontSize: "0.65rem", color: "#9CA3AF", mt: 0.25, fontStyle: "italic", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {row.suggestedReasoning}
+                  </Typography>
+                )}
+              </Box>
+
+              <Box sx={{ display: "flex", justifyContent: "center" }}>
+                {isMapped
+                  ? <Link2 size={15} color={isRepeater ? "#6366F1" : "#395B45"} />
+                  : <Link2Off size={15} color="#D1D5DB" />
+                }
+              </Box>
+
+              <FormControl fullWidth size="small">
+                <Select
+                  value={row.assignedKey}
+                  onChange={(e) => onAssign(row.pairIndex, e.target.value)}
+                  displayEmpty
+                  IconComponent={ChevronDown}
+                  MenuProps={{ PaperProps: { sx: { maxHeight: 320 } } }}
+                  sx={{
+                    fontSize: "0.78rem", bgcolor: "#fff",
+                    "& .MuiOutlinedInput-notchedOutline": { borderColor: isMapped ? (isRepeater ? "#C7D2FE" : "#BBF7D0") : "#E5E7EB" },
+                    "&:hover .MuiOutlinedInput-notchedOutline": { borderColor: "#395B45" },
+                    "&.Mui-focused .MuiOutlinedInput-notchedOutline": { borderColor: "#395B45" },
+                  }}
+                  renderValue={(val) => {
+                    if (!val) return <Typography sx={{ fontSize: "0.78rem", color: "#9CA3AF", fontStyle: "italic" }}>— Ignore —</Typography>;
+                    const t = targets.find((t) => t.assignedKey === val);
+                    return (
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, minWidth: 0 }}>
+                        {t?.repeaterKey && <Layers size={12} color="#6366F1" style={{ flexShrink: 0 }} />}
+                        <Typography sx={{ fontSize: "0.78rem", color: "#111827", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {t?.label ?? val}
+                        </Typography>
+                        {hasSuggestion && val === row.suggestedKey && (
+                          <Chip label={confidenceLabel(row.suggestedConfidence)} size="small"
+                            color={confidenceColor(row.suggestedConfidence)} variant="outlined"
+                            sx={{ height: 16, fontSize: "0.6rem", fontWeight: 700, flexShrink: 0 }} />
+                        )}
+                      </Box>
+                    );
+                  }}
+                >
+                  <MenuItem value={IGNORE_VALUE}>
+                    <Typography sx={{ fontSize: "0.78rem", color: "#9CA3AF", fontStyle: "italic" }}>— Ignore —</Typography>
+                  </MenuItem>
+
+                  {scalarTargets.length > 0 && [
+                    <Divider key="div-scalar" sx={{ my: 0.5 }} />,
+                    <Box key="hdr-scalar" sx={{ px: 2, py: 0.5 }}>
+                      <Typography sx={{ fontSize: "0.65rem", fontWeight: 700, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: 0.5 }}>
+                        Standard Fields
+                      </Typography>
+                    </Box>,
+                    ...scalarTargets.map((t) => {
+                      const inUse = assignedKeys.has(t.assignedKey) && t.assignedKey !== row.assignedKey;
+                      return (
+                        <MenuItem key={t.assignedKey} value={t.assignedKey} disabled={inUse}
+                          sx={{ fontSize: "0.78rem", opacity: inUse ? 0.4 : 1, bgcolor: t.assignedKey === row.suggestedKey && !inUse ? "rgba(57,91,69,0.06)" : "transparent", "&:hover": { bgcolor: "rgba(57,91,69,0.1)" } }}>
+                          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", gap: 1 }}>
+                            <Typography sx={{ fontSize: "0.78rem" }}>{t.label}</Typography>
+                            <Box sx={{ display: "flex", gap: 0.5, flexShrink: 0 }}>
+                              {t.assignedKey === row.suggestedKey && !inUse && (
+                                <Chip label={confidenceLabel(row.suggestedConfidence)} size="small"
+                                  color={confidenceColor(row.suggestedConfidence)} variant="outlined"
+                                  sx={{ height: 16, fontSize: "0.6rem", fontWeight: 700 }} />
+                              )}
+                              {inUse && <Typography sx={{ fontSize: "0.65rem", color: "#9CA3AF" }}>in use</Typography>}
+                            </Box>
+                          </Box>
+                        </MenuItem>
+                      );
+                    }),
+                  ]}
+
+                  {repeaterGroups.map((group) => [
+                    <Divider key={`div-${group.label}`} sx={{ my: 0.5 }} />,
+                    <Box key={`hdr-${group.label}`} sx={{ px: 2, py: 0.5, display: "flex", alignItems: "center", gap: 0.75 }}>
+                      <Layers size={13} color="#6366F1" />
+                      <Typography sx={{ fontSize: "0.65rem", fontWeight: 700, color: "#6366F1", textTransform: "uppercase", letterSpacing: 0.5 }}>
+                        {group.label}
+                      </Typography>
+                    </Box>,
+                    ...group.items.map((t) => {
+                      const inUse = assignedKeys.has(t.assignedKey) && t.assignedKey !== row.assignedKey;
+                      return (
+                        <MenuItem key={t.assignedKey} value={t.assignedKey} disabled={inUse}
+                          sx={{ fontSize: "0.78rem", pl: 3, opacity: inUse ? 0.4 : 1, bgcolor: t.assignedKey === row.suggestedKey && !inUse ? "rgba(99,102,241,0.06)" : "transparent", "&:hover": { bgcolor: "rgba(99,102,241,0.1)" } }}>
+                          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", gap: 1 }}>
+                            <Typography sx={{ fontSize: "0.78rem" }}>{t.label.split(" → ")[1] ?? t.subFieldName}</Typography>
+                            {inUse && <Typography sx={{ fontSize: "0.65rem", color: "#9CA3AF", flexShrink: 0 }}>in use</Typography>}
+                          </Box>
+                        </MenuItem>
+                      );
+                    }),
+                  ])}
+                </Select>
+              </FormControl>
+            </Paper>
+          );
+        })}
+      </Box>
+
+      <Box sx={{ display: "flex", justifyContent: "space-between", mt: 2 }}>
+        <Button onClick={onBack} sx={{ color: "#6B7280", fontWeight: 500, textTransform: "none" }}>← Back</Button>
+        <Button variant="contained" onClick={onConfirm} disabled={mappedCount === 0}
+          endIcon={<ArrowRight size={16} />}
+          sx={{ bgcolor: "#395B45", "&:hover": { bgcolor: "#2D4A38" }, fontWeight: 600, textTransform: "none", minWidth: 180 }}>
+          Review {mappedCount} Field{mappedCount !== 1 ? "s" : ""}
+        </Button>
+      </Box>
+    </Box>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Review phase
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface ReviewPhaseProps {
+  mappedRows: MappingRow[];
+  targets: MappingTarget[];
+  editedValues: Record<string, string>;
+  excluded: Set<string>;
+  onEditValue: (assignedKey: string, value: string) => void;
+  onToggleExclude: (assignedKey: string) => void;
+  onApply: () => void;
+  onBack: () => void;
+  onReset: () => void;
+  files: FileEntry[];
+  onViewDebug: (e: FileEntry) => void;
+  warning?: string;
+}
+
+function ReviewPhase({
+  mappedRows, targets, editedValues, excluded,
+  onEditValue, onToggleExclude,
+  onApply, onBack, onReset,
+  files, onViewDebug, warning,
+}: ReviewPhaseProps) {
+  const targetMap = useMemo(() => new Map(targets.map((t) => [t.assignedKey, t])), [targets]);
+  const willApply = mappedRows.filter((r) => !excluded.has(r.assignedKey)).length;
+  const highCount = mappedRows.filter((r) => r.suggestedConfidence >= 0.9 && !excluded.has(r.assignedKey)).length;
+
+  const groups = useMemo(() => {
+    const scalars: MappingRow[] = [];
+    const byRepeater = new Map<string, { label: string; rows: MappingRow[] }>();
+    for (const row of mappedRows) {
+      const t = targetMap.get(row.assignedKey);
+      if (!t) continue;
+      if (t.repeaterKey) {
+        if (!byRepeater.has(t.repeaterKey)) byRepeater.set(t.repeaterKey, { label: t.repeaterLabel!, rows: [] });
+        byRepeater.get(t.repeaterKey)!.rows.push(row);
+      } else {
+        scalars.push(row);
+      }
+    }
+    return { scalars, repeaterGroups: Array.from(byRepeater.values()) };
+  }, [mappedRows, targetMap]);
+
+  function renderRow(row: MappingRow) {
+    const t          = targetMap.get(row.assignedKey);
+    const isExcluded = excluded.has(row.assignedKey);
+    const isUserMap  = row.assignedKey !== row.suggestedKey;
+    const isRepeater = Boolean(t?.repeaterKey);
+    const currentVal = editedValues[row.assignedKey] ?? row.value;
+    const fieldType  = t?.subFieldType ?? t?.fieldType ?? "text";
+
+    return (
+      <Paper key={row.pairIndex} variant="outlined"
+        sx={{
+          p: 1.5, borderRadius: 1.5,
+          borderColor: isExcluded ? "#E5E7EB" : isRepeater ? "#C7D2FE" : row.suggestedConfidence >= 0.9 ? "#BBF7D0" : "#FDE68A",
+          bgcolor: isExcluded ? "#FAFAFA" : isRepeater ? "#EEF2FF" : row.suggestedConfidence >= 0.9 ? "#F0FDF4" : "#FFFBEB",
+          opacity: isExcluded ? 0.55 : 1, transition: "all 0.15s",
+        }}
+      >
+        <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5 }}>
+          <Box component="input" type="checkbox" checked={!isExcluded}
+            onChange={() => onToggleExclude(row.assignedKey)}
+            sx={{ mt: 0.5, cursor: "pointer", accentColor: "#395B45", width: 15, height: 15, flexShrink: 0 }}
+          />
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.75, flexWrap: "wrap" }}>
+              {isRepeater && <Layers size={13} color="#6366F1" style={{ flexShrink: 0 }} />}
+              <Typography sx={{ fontWeight: 700, fontSize: "0.8rem", color: "#111827" }}>
+                {t?.label ?? row.assignedKey}
+              </Typography>
+              {isUserMap
+                ? <Chip label="User mapped" size="small" variant="outlined"
+                    sx={{ height: 18, fontSize: "0.65rem", fontWeight: 700, color: "#6B7280", borderColor: "#D1D5DB" }} />
+                : <Chip label={confidenceLabel(row.suggestedConfidence)} size="small"
+                    color={confidenceColor(row.suggestedConfidence)} variant="outlined"
+                    sx={{ height: 18, fontSize: "0.65rem", fontWeight: 700 }} />
+              }
+              <Tooltip title={`From document label: "${row.label}"`}>
+                <Typography variant="caption" sx={{ color: "#9CA3AF", cursor: "help", fontSize: "0.7rem" }}>
+                  from "{row.label}"
+                </Typography>
+              </Tooltip>
+            </Box>
+
+            {fieldType === "textarea" ? (
+              <TextField fullWidth size="small" multiline minRows={2}
+                value={currentVal} disabled={isExcluded}
+                onChange={(e) => onEditValue(row.assignedKey, e.target.value)}
+                sx={{ "& .MuiOutlinedInput-root": { bgcolor: "#fff", fontSize: "0.8rem" } }} />
+            ) : (
+              <TextField fullWidth size="small"
+                type={fieldType === "date" ? "date" : "text"}
+                value={currentVal} disabled={isExcluded}
+                onChange={(e) => onEditValue(row.assignedKey, e.target.value)}
+                slotProps={fieldType === "date" ? { inputLabel: { shrink: true } } : {}}
+                sx={{ "& .MuiOutlinedInput-root": { bgcolor: "#fff", fontSize: "0.8rem" } }} />
+            )}
+          </Box>
+        </Box>
+      </Paper>
+    );
+  }
+
+  return (
+    <Box>
+      {warning && (
+        <Alert severity="warning" icon={<Info size={16} />} sx={{ mb: 2, borderRadius: 1.5 }}>{warning}</Alert>
+      )}
+
+      <Box sx={{ display: "flex", gap: 1, mb: 2, flexWrap: "wrap", alignItems: "center" }}>
+        {files.filter((f) => f.status === "done").map((entry) => (
+          <Chip key={entry.id} icon={<CheckCircle size={12} />}
+            label={`${entry.file.name} · Text extracted`}
+            size="small" variant="outlined" color="success"
+            onClick={entry.result?.raw_text ? () => onViewDebug(entry) : undefined}
+            deleteIcon={entry.result?.raw_text ? <Eye size={12} /> : undefined}
+            onDelete={entry.result?.raw_text ? () => onViewDebug(entry) : undefined}
+            sx={{ fontSize: "0.7rem", height: 22 }}
+          />
+        ))}
+        {files.some((e) => e.result?.raw_text) && (
+          <Typography variant="caption" sx={{ color: "#9CA3AF", fontSize: "0.7rem" }}>click to view extracted text</Typography>
+        )}
+      </Box>
+
+      <Box sx={{ display: "flex", gap: 2, mb: 2.5, flexWrap: "wrap" }}>
+        {[
+          { value: mappedRows.length, label: "Mapped fields",   color: "#395B45" },
+          { value: highCount,         label: "High confidence", color: "#16A34A" },
+          { value: willApply,         label: "Will be applied", color: "#374151" },
+        ].map(({ value, label, color }) => (
+          <Paper key={label} variant="outlined" sx={{ flex: 1, minWidth: 100, p: 1.5, borderRadius: 1.5, textAlign: "center" }}>
+            <Typography sx={{ fontSize: "1.6rem", fontWeight: 800, color, lineHeight: 1 }}>{value}</Typography>
+            <Typography variant="caption" sx={{ color: "#6B7280" }}>{label}</Typography>
+          </Paper>
+        ))}
+      </Box>
+
+      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1.5 }}>
+        <Typography sx={{ fontWeight: 700, color: "#111827", fontSize: "0.875rem" }}>Review values before applying</Typography>
+        <Typography variant="caption" sx={{ color: "#6B7280" }}>Edit values · uncheck to skip</Typography>
+      </Box>
+
+      <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+        {groups.scalars.map(renderRow)}
+        {groups.repeaterGroups.map((group) => (
+          <Box key={group.label}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 1.5, mb: 0.75 }}>
+              <Layers size={15} color="#6366F1" />
+              <Typography sx={{ fontWeight: 700, fontSize: "0.8rem", color: "#6366F1" }}>{group.label}</Typography>
+              <Box sx={{ flex: 1, height: "1px", bgcolor: "#C7D2FE" }} />
+              <Typography variant="caption" sx={{ color: "#818CF8", fontSize: "0.68rem", whiteSpace: "nowrap" }}>
+                {(() => {
+                  const maxRows = Math.max(1, ...group.rows.map((r) =>
+                    (editedValues[r.assignedKey] ?? r.value).split(" | ").filter(Boolean).length
+                  ));
+                  return `Will create ${maxRows} row${maxRows !== 1 ? "s" : ""}`;
+                })()}
+              </Typography>
+            </Box>
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+              {group.rows.map(renderRow)}
+            </Box>
+          </Box>
+        ))}
+      </Box>
+
+      <Box sx={{ display: "flex", justifyContent: "space-between", mt: 2 }}>
+        <Box sx={{ display: "flex", gap: 1 }}>
+          <Button onClick={onBack} sx={{ color: "#6B7280", fontWeight: 500, textTransform: "none" }}>← Back to Mapping</Button>
+          <Button onClick={onReset} variant="outlined"
+            sx={{ borderColor: "#D1D5DB", color: "#374151", fontWeight: 500, textTransform: "none" }}>
+            Start Over
+          </Button>
+        </Box>
+        <Button variant="contained" onClick={onApply} disabled={willApply === 0}
+          startIcon={<CheckCircle size={16} />}
+          sx={{ bgcolor: "#395B45", "&:hover": { bgcolor: "#2D4A38" }, fontWeight: 600, textTransform: "none", minWidth: 180 }}>
+          Apply {willApply} Field{willApply !== 1 ? "s" : ""}
+        </Button>
+      </Box>
+    </Box>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Debug viewer
+// ─────────────────────────────────────────────────────────────────────────────
+
+function CopyButton({ getText, label }: { getText: () => string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  function handleCopy() {
+    const text = getText();
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    });
+  }
+  return (
+    <Tooltip title={copied ? "Copied!" : label}>
+      <IconButton size="small" onClick={handleCopy}
+        sx={{ color: copied ? "#16A34A" : "#6B7280", "&:hover": { color: "#395B45", bgcolor: "rgba(57,91,69,0.08)" }, transition: "color 0.15s" }}>
+        {copied ? <CheckCircle size={15} /> : <Copy size={15} />}
+      </IconButton>
+    </Tooltip>
+  );
+}
+
+function DebugViewer({ entry, onClose }: { entry: FileEntry; onClose: () => void }) {
+  return (
+    <Dialog open onClose={onClose} maxWidth="lg" fullWidth
+      slotProps={{ paper: { sx: { borderRadius: 2, height: "85vh", display: "flex", flexDirection: "column" } } }}>
+      <DialogTitle sx={{ pb: 1, display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid #F3F4F6" }}>
+        <Box>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <Eye size={18} color="#395B45" />
+            <Typography sx={{ fontWeight: 700, fontSize: "1rem", color: "#111827" }}>Extracted Text</Typography>
+          </Box>
+          <Typography variant="caption" sx={{ color: "#6B7280" }}>
+            {entry.file.name} · {entry.result?.extraction_method} · {entry.result?.raw_text?.length ?? 0} chars
+          </Typography>
+        </Box>
+        <IconButton size="small" onClick={onClose} sx={{ color: "#9CA3AF" }}><X size={18} /></IconButton>
+      </DialogTitle>
+
+      <DialogContent sx={{ p: 0, display: "flex", flex: 1, minHeight: 0, overflow: "hidden" }}>
+        <Box sx={{ flex: 1, display: "flex", flexDirection: "column" }}>
+          <Box sx={{ px: 2, py: 1, bgcolor: "#F9FAFB", borderBottom: "1px solid #E5E7EB", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <Typography sx={{ fontWeight: 700, fontSize: "0.75rem", color: "#6B7280", textTransform: "uppercase", letterSpacing: 0.5 }}>Raw OCR Text</Typography>
+            <CopyButton label="Copy raw text" getText={() => entry.result?.raw_text ?? ""} />
+          </Box>
+          <Box component="pre" sx={{ flex: 1, overflowY: "auto", m: 0, p: 2, fontFamily: "monospace", fontSize: "0.78rem", lineHeight: 1.7, color: "#111827", whiteSpace: "pre-wrap", wordBreak: "break-word", bgcolor: "#fff" }}>
+            {entry.result?.raw_text || "(no text extracted)"}
+          </Box>
+        </Box>
+      </DialogContent>
+
+      <DialogActions sx={{ px: 2, py: 1.5, borderTop: "1px solid #F3F4F6", justifyContent: "space-between" }}>
+        <Typography variant="caption" sx={{ color: "#9CA3AF" }}>
+          Use this view to verify OCR quality and check that field labels are parsed correctly
+        </Typography>
+        <Button onClick={onClose} sx={{ color: "#374151", textTransform: "none", fontWeight: 500 }}>Close</Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Root component
+// ─────────────────────────────────────────────────────────────────────────────
 
 export default function AutoFillUploader({ open, onClose, templateFields, onApply }: Props) {
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  // Phase: "upload" → "parsing" → "review"
-  const [phase, setPhase] = useState<"upload" | "parsing" | "review">("upload");
-
-  // Upload-mode tab: "file" | "camera"
-  const [uploadTab, setUploadTab] = useState<"file" | "camera">("file");
-
-  const [files, setFiles] = useState<FileEntry[]>([]);
-  const [mergedResult, setMergedResult] = useState<ParseResponse | null>(null);
-  const [globalError, setGlobalError] = useState<string>("");
-
-  // Review-phase state
-  const [editedValues, setEditedValues] = useState<Record<string, string>>({});
-  const [excluded, setExcluded] = useState<Set<string>>(new Set());
-
-  // Debug viewer
-  const [debugFile, setDebugFile] = useState<FileEntry | null>(null);
-
-  // ── Camera state ──────────────────────────────────────────────────────────
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const inputRef  = useRef<HTMLInputElement>(null);
+  const videoRef  = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
-  const [cameraActive, setCameraActive] = useState(false);
-  const [cameraError, setCameraError] = useState<string>("");
+  const [phase,       setPhase]       = useState<Phase>("upload");
+  const [uploadTab,   setUploadTab]   = useState<"file" | "camera">("file");
+  const [files,       setFiles]       = useState<FileEntry[]>([]);
   const [capturedPhotos, setCapturedPhotos] = useState<Array<{ id: string; dataUrl: string; file: File }>>([]);
+  const [cameraActive,  setCameraActive]  = useState(false);
+  const [cameraError,   setCameraError]   = useState("");
+  const [mergedResult,  setMergedResult]  = useState<ParseResponse | null>(null);
+  const [globalError,   setGlobalError]   = useState("");
+  const [mappingRows,   setMappingRows]   = useState<MappingRow[]>([]);
+  const [editedValues,  setEditedValues]  = useState<Record<string, string>>({});
+  const [excluded,      setExcluded]      = useState<Set<string>>(new Set());
+  const [debugFile,     setDebugFile]     = useState<FileEntry | null>(null);
+  const [llmPending,    setLlmPending]    = useState(false);
 
-  // Start camera stream
+  const targets = useMemo(() => buildMappingTargets(templateFields), [templateFields]);
+
+  const assignedKeys = useMemo<Set<string>>(
+    () => new Set(mappingRows.map((r) => r.assignedKey).filter(Boolean)),
+    [mappingRows],
+  );
+
+  const mappedRows = useMemo(
+    () => mappingRows.filter((r) => r.assignedKey !== IGNORE_VALUE),
+    [mappingRows],
+  );
+
+  const parsedCount = files.filter((f) => f.status === "done").length;
+  const errorCount  = files.filter((f) => f.status === "error").length;
+  const totalCount  = files.length;
+
+  // ── Camera ────────────────────────────────────────────────────────────────
+
+  const stopCamera = useCallback(() => {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setCameraActive(false);
+  }, []);
+
   const startCamera = useCallback(async () => {
     setCameraError("");
     try {
@@ -157,1061 +1116,293 @@ export default function AutoFillUploader({ open, onClose, templateFields, onAppl
         video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } },
       });
       streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
+      if (videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play(); }
       setCameraActive(true);
     } catch (e) {
-      const msg =
+      setCameraError(
         e instanceof DOMException && e.name === "NotAllowedError"
           ? "Camera access denied. Please allow camera permission in your browser and try again."
           : e instanceof DOMException && e.name === "NotFoundError"
           ? "No camera found on this device."
-          : `Could not access camera: ${e instanceof Error ? e.message : String(e)}`;
-      setCameraError(msg);
+          : `Could not access camera: ${e instanceof Error ? e.message : String(e)}`,
+      );
       setCameraActive(false);
     }
   }, []);
 
-  // Stop camera stream
-  const stopCamera = useCallback(() => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-    }
-    if (videoRef.current) videoRef.current.srcObject = null;
-    setCameraActive(false);
-  }, []);
-
-  // Start/stop camera when switching tabs
   useEffect(() => {
     if (!open) return;
-    if (uploadTab === "camera" && phase === "upload") {
-      startCamera();
-    } else {
-      stopCamera();
-    }
+    if (uploadTab === "camera" && phase === "upload") startCamera(); else stopCamera();
     return () => { stopCamera(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uploadTab, open, phase]);
 
-  // Always stop camera when modal closes
-  useEffect(() => {
-    if (!open) stopCamera();
-  }, [open, stopCamera]);
+  useEffect(() => { if (!open) stopCamera(); }, [open, stopCamera]);
 
-  // Capture a photo from the video feed
+  // ── Camera actions ────────────────────────────────────────────────────────
+
   function capturePhoto() {
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
+    const video = videoRef.current; const canvas = canvasRef.current;
     if (!video || !canvas || !cameraActive) return;
-
-    canvas.width = video.videoWidth || 1280;
-    canvas.height = video.videoHeight || 720;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    canvas.width = video.videoWidth || 1280; canvas.height = video.videoHeight || 720;
+    const ctx = canvas.getContext("2d"); if (!ctx) return;
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
     const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
-
-    canvas.toBlob(
-      (blob) => {
-        if (!blob) return;
-        const id = uid();
-        const file = new File([blob], `capture-${id}.jpg`, { type: "image/jpeg" });
-        setCapturedPhotos((prev) => [...prev, { id, dataUrl, file }]);
-      },
-      "image/jpeg",
-      0.92
-    );
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const id = uid();
+      setCapturedPhotos((prev) => [...prev, { id, dataUrl, file: new File([blob], `capture-${id}.jpg`, { type: "image/jpeg" }) }]);
+    }, "image/jpeg", 0.92);
   }
 
-  function removeCapture(id: string) {
-    setCapturedPhotos((prev) => prev.filter((p) => p.id !== id));
-  }
-
-  // Add captured photos to the file list and switch to parsing
   function confirmCaptures() {
-    if (capturedPhotos.length === 0) return;
+    if (!capturedPhotos.length) return;
     addFiles(capturedPhotos.map((p) => p.file));
-    stopCamera();
-    setCapturedPhotos([]);
-    setUploadTab("file");
+    stopCamera(); setCapturedPhotos([]); setUploadTab("file");
   }
 
-  // ── File management ───────────────────────────────────────────────────────
+  // ── File actions ──────────────────────────────────────────────────────────
 
   function addFiles(incoming: FileList | File[]) {
-    const newEntries: FileEntry[] = Array.from(incoming).map((f) => ({
-      id: uid(),
-      file: f,
-      status: "pending",
-      result: null,
-      error: "",
-    }));
-    setFiles((prev) => [...prev, ...newEntries]);
+    setFiles((prev) => [...prev, ...Array.from(incoming).map((f) => ({ id: uid(), file: f, status: "pending" as FileStatus, result: null, error: "" }))]);
     setGlobalError("");
-  }
-
-  function removeFile(id: string) {
-    setFiles((prev) => prev.filter((e) => e.id !== id));
   }
 
   function handleDrop(e: React.DragEvent) {
     e.preventDefault();
-    if (phase !== "upload") return;
-    if (e.dataTransfer.files.length > 0) addFiles(e.dataTransfer.files);
+    if (phase !== "upload" || !e.dataTransfer.files.length) return;
+    addFiles(e.dataTransfer.files);
   }
 
-  // ── Parse all files sequentially ─────────────────────────────────────────
+  // ── Extraction + LLM mapping ──────────────────────────────────────────────
 
   const handleParseAll = useCallback(async () => {
-    if (files.length === 0 || templateFields.length === 0) return;
+    if (!files.length || !templateFields.length) return;
     stopCamera();
     setPhase("parsing");
     setGlobalError("");
+    setLlmPending(false);
 
-    const fieldsJson = JSON.stringify(
-      templateFields.map(({ field_key, field_label, field_type }) => ({
-        field_key, field_label, field_type,
-      }))
-    );
+    const completed: ParseResponse[] = [];
 
-    const completedResults: ParseResponse[] = [];
-
+    // Step 1: Extract text from all files
     for (const entry of files) {
-      setFiles((prev) =>
-        prev.map((e) => e.id === entry.id ? { ...e, status: "parsing" } : e)
-      );
-
+      setFiles((prev) => prev.map((e) => e.id === entry.id ? { ...e, status: "parsing" } : e));
       try {
         const body = new FormData();
         body.append("file", entry.file);
-        body.append("templateFields", fieldsJson);
 
         const res = await fetch("/api/parse-document", { method: "POST", body });
-
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         let json: any;
-        try {
-          json = await res.json();
-        } catch {
+        try { json = await res.json(); } catch {
           const text = await res.text().catch(() => "");
-          const msg = `Server error (${res.status}): ${text.slice(0, 200) || "no details"}`;
-          console.error("[AutoFill] non-JSON response:", res.status, text.slice(0, 500));
-          setFiles((prev) =>
-            prev.map((e) => e.id === entry.id ? { ...e, status: "error", error: msg } : e)
-          );
+          setFiles((prev) => prev.map((e) => e.id === entry.id ? { ...e, status: "error", error: `Server error (${res.status}): ${text.slice(0, 200) || "no details"}` } : e));
           continue;
         }
 
         if (!res.ok) {
-          const msg = json?.error ?? json?.message ?? `Server error ${res.status}`;
-          setFiles((prev) =>
-            prev.map((e) => e.id === entry.id ? { ...e, status: "error", error: msg } : e)
-          );
+          setFiles((prev) => prev.map((e) => e.id === entry.id ? { ...e, status: "error", error: json?.error ?? `Server error ${res.status}` } : e));
         } else {
           const data: ParseResponse = json.data;
-          completedResults.push(data);
-          setFiles((prev) =>
-            prev.map((e) => e.id === entry.id ? { ...e, status: "done", result: data } : e)
-          );
+          completed.push(data);
+          setFiles((prev) => prev.map((e) => e.id === entry.id ? { ...e, status: "done", result: data } : e));
         }
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Unexpected error.";
-        setFiles((prev) =>
-          prev.map((e) => e.id === entry.id ? { ...e, status: "error", error: msg } : e)
-        );
+        setFiles((prev) => prev.map((e) => e.id === entry.id ? { ...e, status: "error", error: err instanceof Error ? err.message : "Unexpected error." } : e));
       }
     }
 
-    if (completedResults.length === 0) {
-      setGlobalError("No files could be parsed successfully. Check the errors below and try again.");
+    if (!completed.length) {
+      setGlobalError("No files could be parsed. Check errors below and try again.");
       setPhase("upload");
       return;
     }
 
-    const merged = mergeResults(completedResults, templateFields);
+    const merged = mergeResults(completed);
     setMergedResult(merged);
 
+    // Step 2: Call LLM to generate field mappings from raw text
+    setLlmPending(true);
+    let llmMappings: LLMMapping[] = [];
+    try {
+      const llmRes = await fetch("/api/llm-map", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          raw_text: merged.raw_text,
+          template_fields: templateFields.map(({ field_key, field_label, field_type }) => ({
+            field_key, field_label, field_type,
+          })),
+        }),
+      });
+
+      if (llmRes.ok) {
+        const llmJson = await llmRes.json();
+        llmMappings = llmJson.data?.mappings ?? [];
+      } else {
+        console.warn("[AutoFillUploader] LLM mapping failed — proceeding without AI suggestions");
+      }
+    } catch (e) {
+      console.warn("[AutoFillUploader] LLM mapping error:", e);
+    }
+    setLlmPending(false);
+
+    setMappingRows(buildMappingRows(targets, llmMappings));
+    setPhase("mapping");
+  }, [files, templateFields, targets, stopCamera]);
+
+  // ── Mapping actions ───────────────────────────────────────────────────────
+
+  function handleAssign(pairIndex: number, assignedKey: string) {
+    setMappingRows((prev) => prev.map((r) => r.pairIndex === pairIndex ? { ...r, assignedKey } : r));
+  }
+
+  function handleConfirmMapping() {
     const initial: Record<string, string> = {};
-    for (const m of merged.matched) initial[m.field_key] = m.value;
+    const targetMap = new Map(targets.map((t) => [t.assignedKey, t]));
+    for (const row of mappingRows) {
+      if (!row.assignedKey || row.assignedKey === IGNORE_VALUE) continue;
+      const target = targetMap.get(row.assignedKey);
+      const fieldType = target?.subFieldType ?? target?.fieldType ?? "text";
+      let val = row.value;
+      if (fieldType === "date") val = coerceDateString(val);
+      initial[row.assignedKey] = val;
+    }
     setEditedValues(initial);
     setExcluded(new Set());
-
     setPhase("review");
-  }, [files, templateFields, stopCamera]);
+  }
 
   // ── Apply ─────────────────────────────────────────────────────────────────
 
   function handleApply() {
-    if (!mergedResult) return;
-    const values: Record<string, string> = {};
-    const autoKeys = new Set<string>();
-
-    for (const m of mergedResult.matched) {
-      if (excluded.has(m.field_key)) continue;
-      const val = editedValues[m.field_key] ?? m.value;
-      if (val.trim()) {
-        values[m.field_key] = val;
-        autoKeys.add(m.field_key);
-      }
-    }
-
+    const { values, autoKeys } = assembleApplyValues(
+      mappedRows, editedValues, excluded, targets
+    );
     onApply(values, autoKeys);
     handleClose();
   }
 
+  // ── Reset / close ─────────────────────────────────────────────────────────
+
   function reset() {
     stopCamera();
-    setPhase("upload");
-    setUploadTab("file");
-    setFiles([]);
-    setMergedResult(null);
-    setGlobalError("");
-    setEditedValues({});
-    setExcluded(new Set());
-    setDebugFile(null);
-    setCapturedPhotos([]);
-    setCameraError("");
+    setPhase("upload"); setUploadTab("file");
+    setFiles([]); setMergedResult(null); setGlobalError("");
+    setMappingRows([]); setEditedValues({}); setExcluded(new Set());
+    setDebugFile(null); setCapturedPhotos([]); setCameraError(""); setLlmPending(false);
   }
 
-  function handleClose() {
-    reset();
-    onClose();
-  }
-
-  // ── Derived stats ─────────────────────────────────────────────────────────
-
-  const highCount = mergedResult?.matched.filter(
-    (m) => m.confidence >= 0.9 && !excluded.has(m.field_key)
-  ).length ?? 0;
-  const willApply = mergedResult
-    ? Math.max(0, mergedResult.matched.length - excluded.size)
-    : 0;
-
-  const parsedCount = files.filter((f) => f.status === "done").length;
-  const errorCount = files.filter((f) => f.status === "error").length;
-  const totalCount = files.length;
+  function handleClose() { reset(); onClose(); }
 
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <>
-    <Dialog
-      open={open}
-      onClose={phase === "parsing" ? undefined : handleClose}
-      maxWidth="md"
-      fullWidth
-      slotProps={{ paper: { sx: { borderRadius: 2.5, minHeight: "60vh" } } }}
-    >
-      {/* Header */}
-      <DialogTitle sx={{ pb: 0, pt: 2.5, px: 3, display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
-        <Box>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-            <Sparkles size={20} color="#395B45" />
-            <Typography sx={{ fontWeight: 700, fontSize: "1.1rem", color: "#111827" }}>
-              Auto-fill from Documents
-            </Typography>
-          </Box>
-          <Typography variant="caption" sx={{ color: "#6B7280" }}>
-            Upload files or capture photos — custody records, interview notes, or any structured document
-          </Typography>
-        </Box>
-        <IconButton
-          onClick={handleClose}
-          disabled={phase === "parsing"}
-          size="small"
-          sx={{ color: "#9CA3AF", mt: -0.5 }}
-        >
-          <X size={18} />
-        </IconButton>
-      </DialogTitle>
+      <Dialog open={open} onClose={phase === "parsing" ? undefined : handleClose}
+        maxWidth="md" fullWidth
+        slotProps={{ paper: { sx: { borderRadius: 2.5, minHeight: "65vh" } } }}>
 
-      <DialogContent sx={{ px: 3, pt: 2.5, pb: 2 }}>
-
-        {/* Global error */}
-        {globalError && (
-          <Alert severity="error" sx={{ mb: 2, borderRadius: 1.5 }} onClose={() => setGlobalError("")}>
-            {globalError}
-          </Alert>
-        )}
-
-        {/* Extraction warnings */}
-        {mergedResult?.warning && (
-          <Alert severity="warning" icon={<Info size={16} />} sx={{ mb: 2, borderRadius: 1.5 }}>
-            {mergedResult.warning}
-          </Alert>
-        )}
-
-        {/* ── PHASE: Upload ─────────────────────────────────────────────────── */}
-        {phase === "upload" && (
-          <>
-            {/* Mode tabs */}
-            <Tabs
-              value={uploadTab}
-              onChange={(_, v) => { setCameraError(""); setUploadTab(v); }}
-              sx={{
-                mb: 2,
-                minHeight: 36,
-                "& .MuiTab-root": { minHeight: 36, textTransform: "none", fontWeight: 600, fontSize: "0.85rem" },
-                "& .MuiTabs-indicator": { bgcolor: "#395B45" },
-                "& .Mui-selected": { color: "#395B45 !important" },
-              }}
-            >
-              <Tab
-                value="file"
-                label={
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-                    <Upload size={15} />
-                    Upload Files
-                    {files.length > 0 && (
-                      <Chip label={files.length} size="small" sx={{ height: 18, fontSize: "0.65rem", ml: 0.5, bgcolor: "#395B45", color: "#fff" }} />
-                    )}
-                  </Box>
-                }
-              />
-              <Tab
-                value="camera"
-                label={
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-                    <Camera size={15} />
-                    Camera
-                    {capturedPhotos.length > 0 && (
-                      <Chip label={capturedPhotos.length} size="small" sx={{ height: 18, fontSize: "0.65rem", ml: 0.5, bgcolor: "#395B45", color: "#fff" }} />
-                    )}
-                  </Box>
-                }
-              />
-            </Tabs>
-
-            {/* ── File upload tab ── */}
-            {uploadTab === "file" && (
-              <>
-                <Paper
-                  variant="outlined"
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={handleDrop}
-                  onClick={() => inputRef.current?.click()}
-                  sx={{
-                    border: "2px dashed",
-                    borderColor: files.length > 0 ? "#395B45" : "#D1D5DB",
-                    borderRadius: 2,
-                    bgcolor: files.length > 0 ? "rgba(57,91,69,0.04)" : "#FAFAFA",
-                    p: 3,
-                    textAlign: "center",
-                    cursor: "pointer",
-                    transition: "all 0.2s",
-                    "&:hover": { borderColor: "#395B45", bgcolor: "rgba(57,91,69,0.04)" },
-                  }}
-                >
-                  <input
-                    ref={inputRef}
-                    type="file"
-                    accept={ACCEPTED}
-                    multiple
-                    style={{ display: "none" }}
-                    onChange={(e) => {
-                      if (e.target.files && e.target.files.length > 0) addFiles(e.target.files);
-                      e.target.value = "";
-                    }}
-                  />
-                  <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
-                    <Box sx={{ bgcolor: "#F3F4F6", borderRadius: "50%", p: 1.5, display: "flex" }}>
-                      <Upload size={24} color="#9CA3AF" />
-                    </Box>
-                    <Box>
-                      <Typography sx={{ fontWeight: 600, color: "#374151", fontSize: "0.95rem" }}>
-                        Drop files here or click to browse
-                      </Typography>
-                      <Typography variant="caption" sx={{ color: "#9CA3AF", display: "block", mt: 0.25 }}>
-                        PDF, DOCX, TXT, JPG, PNG — multiple files supported — max 10 MB each
-                      </Typography>
-                    </Box>
-                  </Box>
-                </Paper>
-
-                {files.length > 0 && (
-                  <Box sx={{ mt: 1.5 }}>
-                    <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1 }}>
-                      <Typography sx={{ fontWeight: 600, fontSize: "0.8rem", color: "#374151" }}>
-                        {files.length} file{files.length !== 1 ? "s" : ""} selected
-                      </Typography>
-                      <Button
-                        size="small"
-                        onClick={() => setFiles([])}
-                        sx={{ color: "#9CA3AF", textTransform: "none", fontSize: "0.75rem", fontWeight: 500 }}
-                      >
-                        Clear all
-                      </Button>
-                    </Box>
-                    <List dense disablePadding sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}>
-                      {files.map((entry) => (
-                        <ListItem
-                          key={entry.id}
-                          disablePadding
-                          sx={{
-                            bgcolor: "#F9FAFB",
-                            border: "1px solid #E5E7EB",
-                            borderRadius: 1.5,
-                            px: 1.5,
-                            py: 0.75,
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 1,
-                          }}
-                        >
-                          <FileText size={16} color="#6B7280" style={{ flexShrink: 0 }} />
-                          <ListItemText
-                            primary={entry.file.name}
-                            secondary={formatBytes(entry.file.size)}
-                            primaryTypographyProps={{ fontSize: "0.82rem", fontWeight: 600, color: "#111827", noWrap: true }}
-                            secondaryTypographyProps={{ fontSize: "0.72rem", color: "#9CA3AF" }}
-                            sx={{ overflow: "hidden" }}
-                          />
-                          <IconButton
-                            size="small"
-                            onClick={(e) => { e.stopPropagation(); removeFile(entry.id); }}
-                            sx={{ color: "#9CA3AF", "&:hover": { color: "#EF4444" }, flexShrink: 0 }}
-                          >
-                            <Trash2 size={14} />
-                          </IconButton>
-                        </ListItem>
-                      ))}
-                    </List>
-                  </Box>
-                )}
-
-                <Box sx={{ mt: 2, p: 1.5, bgcolor: "#F0F9FF", borderRadius: 1.5, border: "1px solid #BAE6FD" }}>
-                  <Typography variant="caption" sx={{ color: "#0369A1", fontWeight: 600, display: "block", mb: 0.5 }}>
-                    For best results:
-                  </Typography>
-                  <Typography variant="caption" sx={{ color: "#0369A1", display: "block" }}>
-                    • Upload both custody record and interview notes together — fields from both will be merged
-                  </Typography>
-                  <Typography variant="caption" sx={{ color: "#0369A1", display: "block" }}>
-                    • DOCX and TXT give the most accurate extraction — PDFs and images use OCR
-                  </Typography>
-                </Box>
-              </>
-            )}
-
-            {/* ── Camera tab ── */}
-            {uploadTab === "camera" && (
-              <Box>
-                {/* Camera error */}
-                {cameraError && (
-                  <Alert severity="error" sx={{ mb: 2, borderRadius: 1.5 }}>
-                    {cameraError}
-                    <Button
-                      size="small"
-                      onClick={startCamera}
-                      sx={{ ml: 1, textTransform: "none", fontWeight: 600, color: "#DC2626" }}
-                    >
-                      Retry
-                    </Button>
-                  </Alert>
-                )}
-
-                {/* Video preview */}
-                {!cameraError && (
-                  <Box
-                    sx={{
-                      position: "relative",
-                      width: "100%",
-                      bgcolor: "#111827",
-                      borderRadius: 2,
-                      overflow: "hidden",
-                      mb: 1.5,
-                      aspectRatio: "16/9",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <Box
-                      component="video"
-                      ref={videoRef}
-                      autoPlay
-                      playsInline
-                      muted
-                      sx={{
-                        width: "100%",
-                        height: "100%",
-                        objectFit: "cover",
-                        display: cameraActive ? "block" : "none",
-                      }}
-                    />
-                    {!cameraActive && (
-                      <Box sx={{ textAlign: "center", color: "#9CA3AF" }}>
-                        <CircularProgress size={32} sx={{ color: "#9CA3AF", mb: 1 }} />
-                        <Typography variant="body2">Starting camera…</Typography>
-                      </Box>
-                    )}
-
-                    {/* Capture button overlay */}
-                    {cameraActive && (
-                      <Box
-                        sx={{
-                          position: "absolute",
-                          bottom: 16,
-                          left: "50%",
-                          transform: "translateX(-50%)",
-                        }}
-                      >
-                        <Tooltip title="Take photo">
-                          <IconButton
-                            onClick={capturePhoto}
-                            sx={{
-                              bgcolor: "#fff",
-                              width: 56,
-                              height: 56,
-                              border: "3px solid #395B45",
-                              "&:hover": { bgcolor: "#F0FDF4", transform: "scale(1.08)" },
-                              transition: "all 0.15s",
-                            }}
-                          >
-                            <Camera size={26} color="#395B45" />
-                          </IconButton>
-                        </Tooltip>
-                      </Box>
-                    )}
-                  </Box>
-                )}
-
-                {/* Hidden canvas for frame capture */}
-                <canvas ref={canvasRef} style={{ display: "none" }} />
-
-                {/* Captured photo thumbnails */}
-                {capturedPhotos.length > 0 && (
-                  <Box sx={{ mb: 1.5 }}>
-                    <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1 }}>
-                      <Typography sx={{ fontWeight: 600, fontSize: "0.8rem", color: "#374151" }}>
-                        {capturedPhotos.length} photo{capturedPhotos.length !== 1 ? "s" : ""} captured
-                      </Typography>
-                      <Button
-                        size="small"
-                        onClick={() => setCapturedPhotos([])}
-                        sx={{ color: "#9CA3AF", textTransform: "none", fontSize: "0.75rem", fontWeight: 500 }}
-                      >
-                        Clear all
-                      </Button>
-                    </Box>
-                    <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-                      {capturedPhotos.map((p) => (
-                        <Box
-                          key={p.id}
-                          sx={{
-                            position: "relative",
-                            width: 96,
-                            height: 72,
-                            borderRadius: 1.5,
-                            overflow: "hidden",
-                            border: "2px solid #BBF7D0",
-                            flexShrink: 0,
-                          }}
-                        >
-                          <Box
-                            component="img"
-                            src={p.dataUrl}
-                            alt="capture"
-                            sx={{ width: "100%", height: "100%", objectFit: "cover" }}
-                          />
-                          <IconButton
-                            size="small"
-                            onClick={() => removeCapture(p.id)}
-                            sx={{
-                              position: "absolute",
-                              top: 2,
-                              right: 2,
-                              bgcolor: "rgba(0,0,0,0.55)",
-                              color: "#fff",
-                              width: 20,
-                              height: 20,
-                              "&:hover": { bgcolor: "rgba(220,38,38,0.8)" },
-                            }}
-                          >
-                            <X size={11} />
-                          </IconButton>
-                        </Box>
-                      ))}
-                    </Box>
-                  </Box>
-                )}
-
-                {/* Camera tip */}
-                <Box sx={{ mt: 1, p: 1.5, bgcolor: "#F0F9FF", borderRadius: 1.5, border: "1px solid #BAE6FD" }}>
-                  <Typography variant="caption" sx={{ color: "#0369A1", fontWeight: 600, display: "block", mb: 0.5 }}>
-                    Camera tips:
-                  </Typography>
-                  <Typography variant="caption" sx={{ color: "#0369A1", display: "block" }}>
-                    • Hold the document flat and ensure even lighting for best OCR accuracy
-                  </Typography>
-                  <Typography variant="caption" sx={{ color: "#0369A1", display: "block" }}>
-                    • Capture each page separately — take multiple photos then press "Add to Queue"
-                  </Typography>
-                </Box>
+        <DialogTitle sx={{ pb: 0, pt: 2.5, px: 3 }}>
+          <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
+            <Box>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                <Sparkles size={20} color="#395B45" />
+                <Typography sx={{ fontWeight: 700, fontSize: "1.1rem", color: "#111827" }}>Auto-fill from Documents</Typography>
               </Box>
-            )}
-          </>
-        )}
-
-        {/* ── PHASE: Parsing ────────────────────────────────────────────────── */}
-        {phase === "parsing" && (
-          <Box>
-            <Box sx={{ textAlign: "center", py: 3 }}>
-              <CircularProgress sx={{ color: "#395B45", mb: 1.5 }} size={40} />
-              <Typography sx={{ fontWeight: 600, color: "#374151", mb: 0.5 }}>
-                Analysing {totalCount} file{totalCount !== 1 ? "s" : ""}…
-              </Typography>
-              <Typography variant="body2" sx={{ color: "#9CA3AF" }}>
-                {parsedCount} of {totalCount} complete
-                {errorCount > 0 ? ` · ${errorCount} failed` : ""}
-              </Typography>
-              <LinearProgress
-                variant="determinate"
-                value={totalCount > 0 ? ((parsedCount + errorCount) / totalCount) * 100 : 0}
-                sx={{
-                  mt: 2, mx: "auto", maxWidth: 320, borderRadius: 4,
-                  bgcolor: "#E5E7EB",
-                  "& .MuiLinearProgress-bar": { bgcolor: "#395B45" },
-                }}
-              />
-            </Box>
-
-            <List dense disablePadding sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}>
-              {files.map((entry) => (
-                <ListItem
-                  key={entry.id}
-                  disablePadding
-                  sx={{
-                    bgcolor: "#F9FAFB",
-                    border: "1px solid",
-                    borderColor:
-                      entry.status === "done" ? "#BBF7D0"
-                      : entry.status === "error" ? "#FECACA"
-                      : entry.status === "parsing" ? "#BAE6FD"
-                      : "#E5E7EB",
-                    borderRadius: 1.5,
-                    px: 1.5,
-                    py: 0.75,
-                    gap: 1,
-                  }}
-                >
-                  <Box sx={{ flexShrink: 0 }}>
-                    {entry.status === "done" && <CheckCircle size={16} color="#16A34A" />}
-                    {entry.status === "error" && <AlertCircle size={16} color="#DC2626" />}
-                    {entry.status === "parsing" && <CircularProgress size={16} sx={{ color: "#0284C7" }} />}
-                    {entry.status === "pending" && <FileText size={16} color="#9CA3AF" />}
-                  </Box>
-                  <ListItemText
-                    primary={entry.file.name}
-                    secondary={
-                      entry.status === "error" ? entry.error
-                      : entry.status === "done" ? `${entry.result?.matched.length ?? 0} fields matched`
-                      : entry.status === "parsing" ? "Extracting text…"
-                      : "Waiting…"
-                    }
-                    primaryTypographyProps={{ fontSize: "0.82rem", fontWeight: 600, color: "#111827", noWrap: true }}
-                    secondaryTypographyProps={{
-                      fontSize: "0.72rem",
-                      color: entry.status === "error" ? "#DC2626" : entry.status === "done" ? "#16A34A" : "#6B7280",
-                    }}
-                  />
-                  {entry.status === "done" && entry.result?.raw_text && (
-                    <Tooltip title="View extracted text">
-                      <IconButton
-                        size="small"
-                        onClick={() => setDebugFile(entry)}
-                        sx={{ color: "#6B7280", "&:hover": { color: "#395B45" }, flexShrink: 0 }}
-                      >
-                        <Eye size={15} />
-                      </IconButton>
-                    </Tooltip>
-                  )}
-                </ListItem>
-              ))}
-            </List>
-          </Box>
-        )}
-
-        {/* ── PHASE: Review ────────────────────────────────────────────────── */}
-        {phase === "review" && mergedResult && (
-          <Box>
-            <Box sx={{ display: "flex", gap: 1, mb: 2, flexWrap: "wrap", alignItems: "center" }}>
-              {files.map((entry) => (
-                <Chip
-                  key={entry.id}
-                  icon={
-                    entry.status === "done"
-                      ? <CheckCircle size={12} />
-                      : <AlertCircle size={12} />
-                  }
-                  label={
-                    entry.status === "done"
-                      ? `${entry.file.name} · ${entry.result?.matched.length ?? 0} fields`
-                      : `${entry.file.name} · failed`
-                  }
-                  size="small"
-                  variant="outlined"
-                  color={entry.status === "done" ? "success" : "error"}
-                  onClick={entry.status === "done" && entry.result?.raw_text ? () => setDebugFile(entry) : undefined}
-                  deleteIcon={entry.status === "done" && entry.result?.raw_text ? <Eye size={12} /> : undefined}
-                  onDelete={entry.status === "done" && entry.result?.raw_text ? () => setDebugFile(entry) : undefined}
-                  sx={{ fontSize: "0.7rem", height: 22, cursor: entry.result?.raw_text ? "pointer" : "default" }}
-                />
-              ))}
-              {files.some((e) => e.result?.raw_text) && (
-                <Typography variant="caption" sx={{ color: "#9CA3AF", fontSize: "0.7rem" }}>
-                  click a chip to view extracted text
-                </Typography>
-              )}
-            </Box>
-
-            <Box sx={{ display: "flex", gap: 2, mb: 2.5, flexWrap: "wrap" }}>
-              <Paper variant="outlined" sx={{ flex: 1, minWidth: 110, p: 1.5, borderRadius: 1.5, textAlign: "center" }}>
-                <Typography sx={{ fontSize: "1.6rem", fontWeight: 800, color: "#395B45", lineHeight: 1 }}>
-                  {mergedResult.matched.length}
-                </Typography>
-                <Typography variant="caption" sx={{ color: "#6B7280" }}>Fields matched</Typography>
-              </Paper>
-              <Paper variant="outlined" sx={{ flex: 1, minWidth: 110, p: 1.5, borderRadius: 1.5, textAlign: "center" }}>
-                <Typography sx={{ fontSize: "1.6rem", fontWeight: 800, color: "#16A34A", lineHeight: 1 }}>
-                  {highCount}
-                </Typography>
-                <Typography variant="caption" sx={{ color: "#6B7280" }}>High confidence</Typography>
-              </Paper>
-              <Paper variant="outlined" sx={{ flex: 1, minWidth: 110, p: 1.5, borderRadius: 1.5, textAlign: "center" }}>
-                <Typography sx={{ fontSize: "1.6rem", fontWeight: 800, color: "#D97706", lineHeight: 1 }}>
-                  {mergedResult.unmatched_template_keys.length}
-                </Typography>
-                <Typography variant="caption" sx={{ color: "#6B7280" }}>Need manual input</Typography>
-              </Paper>
-            </Box>
-
-            {mergedResult.matched.length === 0 ? (
-              <Box sx={{ textAlign: "center", py: 4 }}>
-                <AlertCircle size={40} color="#9CA3AF" style={{ margin: "0 auto 12px" }} />
-                <Typography sx={{ fontWeight: 600, color: "#374151" }}>No fields matched</Typography>
-                <Typography variant="body2" sx={{ color: "#9CA3AF", mt: 0.5 }}>
-                  None of the uploaded documents contained recognisable field labels.
-                  Try different files or fill fields manually.
-                </Typography>
-              </Box>
-            ) : (
-              <>
-                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1.5 }}>
-                  <Typography sx={{ fontWeight: 700, color: "#111827", fontSize: "0.875rem" }}>
-                    Review matched fields
-                  </Typography>
-                  <Typography variant="caption" sx={{ color: "#6B7280" }}>
-                    Edit values before applying · uncheck to skip a field
-                  </Typography>
-                </Box>
-
-                <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                  {mergedResult.matched.map((m) => {
-                    const isExcluded = excluded.has(m.field_key);
-                    return (
-                      <Paper
-                        key={m.field_key}
-                        variant="outlined"
-                        sx={{
-                          p: 1.5,
-                          borderRadius: 1.5,
-                          borderColor: isExcluded
-                            ? "#E5E7EB"
-                            : m.confidence >= 0.9 ? "#BBF7D0"
-                            : m.confidence >= 0.75 ? "#FDE68A"
-                            : "#FECACA",
-                          bgcolor: isExcluded
-                            ? "#FAFAFA"
-                            : m.confidence >= 0.9 ? "#F0FDF4"
-                            : m.confidence >= 0.75 ? "#FFFBEB"
-                            : "#FFF5F5",
-                          opacity: isExcluded ? 0.55 : 1,
-                          transition: "all 0.15s",
-                        }}
-                      >
-                        <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5 }}>
-                          <Box
-                            component="input"
-                            type="checkbox"
-                            checked={!isExcluded}
-                            onChange={() =>
-                              setExcluded((prev) => {
-                                const next = new Set(prev);
-                                if (next.has(m.field_key)) next.delete(m.field_key);
-                                else next.add(m.field_key);
-                                return next;
-                              })
-                            }
-                            sx={{ mt: 0.5, cursor: "pointer", accentColor: "#395B45", width: 15, height: 15, flexShrink: 0 }}
-                          />
-                          <Box sx={{ flex: 1, minWidth: 0 }}>
-                            <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.75, flexWrap: "wrap" }}>
-                              <Typography sx={{ fontWeight: 700, fontSize: "0.8rem", color: "#111827" }}>
-                                {m.field_label}
-                              </Typography>
-                              <Chip
-                                label={confidenceLabel(m.confidence)}
-                                size="small"
-                                color={confidenceColor(m.confidence)}
-                                variant="outlined"
-                                sx={{ height: 18, fontSize: "0.65rem", fontWeight: 700 }}
-                              />
-                              <Tooltip title={`Matched from document label: "${m.source_label}"`}>
-                                <Typography variant="caption" sx={{ color: "#9CA3AF", cursor: "help", fontSize: "0.7rem" }}>
-                                  from "{m.source_label}"
-                                </Typography>
-                              </Tooltip>
-                            </Box>
-
-                            {m.field_type === "textarea" ? (
-                              <TextField
-                                fullWidth
-                                size="small"
-                                multiline
-                                minRows={2}
-                                value={editedValues[m.field_key] ?? m.value}
-                                onChange={(e) =>
-                                  setEditedValues((p) => ({ ...p, [m.field_key]: e.target.value }))
-                                }
-                                disabled={isExcluded}
-                                sx={{ "& .MuiOutlinedInput-root": { bgcolor: "#fff", fontSize: "0.8rem" } }}
-                              />
-                            ) : (
-                              <TextField
-                                fullWidth
-                                size="small"
-                                type={
-                                  m.field_type === "date" ? "date"
-                                  : m.field_type === "number" ? "number"
-                                  : "text"
-                                }
-                                value={editedValues[m.field_key] ?? m.value}
-                                onChange={(e) =>
-                                  setEditedValues((p) => ({ ...p, [m.field_key]: e.target.value }))
-                                }
-                                disabled={isExcluded}
-                                slotProps={m.field_type === "date" ? { inputLabel: { shrink: true } } : {}}
-                                sx={{ "& .MuiOutlinedInput-root": { bgcolor: "#fff", fontSize: "0.8rem" } }}
-                              />
-                            )}
-                          </Box>
-                        </Box>
-                      </Paper>
-                    );
-                  })}
-                </Box>
-
-                {mergedResult.unmatched_template_keys.length > 0 && (
-                  <Box sx={{ mt: 2, p: 1.5, bgcolor: "#FFF7ED", borderRadius: 1.5, border: "1px solid #FED7AA" }}>
-                    <Typography variant="caption" sx={{ color: "#92400E", fontWeight: 600, display: "block", mb: 0.5 }}>
-                      Fields not found in any document ({mergedResult.unmatched_template_keys.length}):
-                    </Typography>
-                    <Typography variant="caption" sx={{ color: "#B45309" }}>
-                      {mergedResult.unmatched_template_keys.join(" · ")}
-                    </Typography>
-                  </Box>
-                )}
-              </>
-            )}
-          </Box>
-        )}
-      </DialogContent>
-
-      {/* Actions */}
-      <DialogActions sx={{ px: 3, py: 2, gap: 1, justifyContent: "space-between", borderTop: "1px solid #F3F4F6" }}>
-        <Box sx={{ display: "flex", gap: 1 }}>
-          <Button
-            onClick={handleClose}
-            disabled={phase === "parsing"}
-            sx={{ color: "#6B7280", fontWeight: 500, textTransform: "none" }}
-          >
-            Cancel
-          </Button>
-          {phase === "review" && (
-            <Button
-              onClick={reset}
-              variant="outlined"
-              sx={{ borderColor: "#D1D5DB", color: "#374151", fontWeight: 500, textTransform: "none" }}
-            >
-              Try Different Files
-            </Button>
-          )}
-        </Box>
-
-        {phase === "upload" && (
-          <Box sx={{ display: "flex", gap: 1 }}>
-            {/* Camera tab: "Add to Queue" button */}
-            {uploadTab === "camera" && capturedPhotos.length > 0 && (
-              <Button
-                variant="outlined"
-                onClick={confirmCaptures}
-                startIcon={<ZoomIn size={16} />}
-                sx={{
-                  borderColor: "#395B45", color: "#395B45",
-                  fontWeight: 600, textTransform: "none",
-                }}
-              >
-                Add {capturedPhotos.length} Photo{capturedPhotos.length !== 1 ? "s" : ""} to Queue
-              </Button>
-            )}
-
-            <Button
-              variant="contained"
-              onClick={handleParseAll}
-              disabled={files.length === 0}
-              startIcon={<Sparkles size={16} />}
-              sx={{
-                bgcolor: "#395B45", "&:hover": { bgcolor: "#2D4A38" },
-                fontWeight: 600, textTransform: "none", minWidth: 160,
-              }}
-            >
-              Extract Fields ({files.length})
-            </Button>
-          </Box>
-        )}
-
-        {phase === "parsing" && (
-          <Button
-            variant="contained"
-            disabled
-            startIcon={<CircularProgress size={16} color="inherit" />}
-            sx={{ bgcolor: "#395B45", fontWeight: 600, textTransform: "none", minWidth: 160 }}
-          >
-            Analysing…
-          </Button>
-        )}
-
-        {phase === "review" && (
-          <Button
-            variant="contained"
-            onClick={handleApply}
-            disabled={willApply === 0}
-            startIcon={<CheckCircle size={16} />}
-            sx={{
-              bgcolor: "#395B45", "&:hover": { bgcolor: "#2D4A38" },
-              fontWeight: 600, textTransform: "none", minWidth: 180,
-            }}
-          >
-            Apply {willApply} Field{willApply !== 1 ? "s" : ""}
-          </Button>
-        )}
-      </DialogActions>
-    </Dialog>
-
-    {/* ── Debug: Raw Extracted Text Viewer ─────────────────────────────────── */}
-    {debugFile && (
-      <Dialog
-        open={!!debugFile}
-        onClose={() => setDebugFile(null)}
-        maxWidth="lg"
-        fullWidth
-        slotProps={{ paper: { sx: { borderRadius: 2, height: "85vh", display: "flex", flexDirection: "column" } } }}
-      >
-        <DialogTitle sx={{ pb: 1, display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid #F3F4F6" }}>
-          <Box>
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-              <Eye size={18} color="#395B45" />
-              <Typography sx={{ fontWeight: 700, fontSize: "1rem", color: "#111827" }}>
-                Extracted Text
+              <Typography variant="caption" sx={{ color: "#6B7280" }}>
+                Upload files · extract text · AI maps fields · review values
               </Typography>
             </Box>
-            <Typography variant="caption" sx={{ color: "#6B7280" }}>
-              {debugFile.file.name} · {debugFile.result?.extraction_method} · {debugFile.result?.raw_text?.length ?? 0} chars
-            </Typography>
-          </Box>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-            <Chip
-              label={`${debugFile.result?.raw_pairs.length ?? 0} pairs extracted`}
-              size="small"
-              variant="outlined"
-              sx={{ fontSize: "0.7rem" }}
-            />
-            <IconButton size="small" onClick={() => setDebugFile(null)} sx={{ color: "#9CA3AF" }}>
+            <IconButton onClick={handleClose} disabled={phase === "parsing"} size="small" sx={{ color: "#9CA3AF", mt: -0.5 }}>
               <X size={18} />
             </IconButton>
           </Box>
+          <StepIndicator current={phase} />
         </DialogTitle>
 
-        <DialogContent sx={{ p: 0, display: "flex", flex: 1, minHeight: 0, overflow: "hidden" }}>
-          <Box sx={{ flex: 1, display: "flex", flexDirection: "column", borderRight: "1px solid #E5E7EB" }}>
-            <Box sx={{ px: 2, py: 1, bgcolor: "#F9FAFB", borderBottom: "1px solid #E5E7EB" }}>
-              <Typography sx={{ fontWeight: 700, fontSize: "0.75rem", color: "#6B7280", textTransform: "uppercase", letterSpacing: 0.5 }}>
-                Raw OCR Text
-              </Typography>
-            </Box>
-            <Box
-              component="pre"
-              sx={{
-                flex: 1,
-                overflowY: "auto",
-                m: 0,
-                p: 2,
-                fontFamily: "monospace",
-                fontSize: "0.78rem",
-                lineHeight: 1.7,
-                color: "#111827",
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-word",
-                bgcolor: "#fff",
-              }}
-            >
-              {debugFile.result?.raw_text || "(no text extracted)"}
-            </Box>
-          </Box>
+        <DialogContent sx={{ px: 3, pt: 2.5, pb: 2 }}>
+          {globalError && (
+            <Alert severity="error" sx={{ mb: 2, borderRadius: 1.5 }} onClose={() => setGlobalError("")}>
+              {globalError}
+            </Alert>
+          )}
 
-          <Box sx={{ width: 340, display: "flex", flexDirection: "column", flexShrink: 0 }}>
-            <Box sx={{ px: 2, py: 1, bgcolor: "#F9FAFB", borderBottom: "1px solid #E5E7EB" }}>
-              <Typography sx={{ fontWeight: 700, fontSize: "0.75rem", color: "#6B7280", textTransform: "uppercase", letterSpacing: 0.5 }}>
-                Parsed Key → Value Pairs
-              </Typography>
-            </Box>
-            <Box sx={{ flex: 1, overflowY: "auto", p: 1.5, display: "flex", flexDirection: "column", gap: 0.75 }}>
-              {(debugFile.result?.raw_pairs ?? []).length === 0 ? (
-                <Typography variant="caption" sx={{ color: "#9CA3AF", p: 1 }}>
-                  No key:value pairs could be parsed from this text.
-                </Typography>
-              ) : (
-                (debugFile.result?.raw_pairs ?? []).map((pair, i) => (
-                  <Box
-                    key={i}
-                    sx={{
-                      bgcolor: "#F9FAFB",
-                      border: "1px solid #E5E7EB",
-                      borderRadius: 1,
-                      px: 1.25,
-                      py: 0.75,
-                    }}
-                  >
-                    <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: "#374151", mb: 0.25 }}>
-                      {pair.label}
-                    </Typography>
-                    <Typography sx={{ fontSize: "0.72rem", color: "#6B7280", wordBreak: "break-word" }}>
-                      {pair.value}
-                    </Typography>
-                  </Box>
-                ))
-              )}
-            </Box>
-          </Box>
+          {phase === "upload" && (
+            <UploadPhase
+              files={files} uploadTab={uploadTab} capturedPhotos={capturedPhotos}
+              cameraActive={cameraActive} cameraError={cameraError}
+              videoRef={videoRef} canvasRef={canvasRef} inputRef={inputRef}
+              onTabChange={(tab) => { setCameraError(""); setUploadTab(tab); }}
+              onAddFiles={addFiles}
+              onRemoveFile={(id) => setFiles((prev) => prev.filter((e) => e.id !== id))}
+              onClearFiles={() => setFiles([])}
+              onDrop={handleDrop}
+              onCapturePhoto={capturePhoto}
+              onRemoveCapture={(id) => setCapturedPhotos((prev) => prev.filter((p) => p.id !== id))}
+              onClearCaptures={() => setCapturedPhotos([])}
+              onConfirmCaptures={confirmCaptures}
+              onRetryCamera={startCamera}
+              onExtract={handleParseAll}
+            />
+          )}
+
+          {phase === "parsing" && (
+            <ParsingPhase files={files} llmPending={llmPending} onViewDebug={setDebugFile} />
+          )}
+
+          {phase === "mapping" && (
+            <MappingPhase
+              rows={mappingRows} targets={targets} assignedKeys={assignedKeys}
+              onAssign={handleAssign}
+              onConfirm={handleConfirmMapping}
+              onBack={() => setPhase("upload")}
+              files={files} onViewDebug={setDebugFile}
+            />
+          )}
+
+          {phase === "review" && (
+            <ReviewPhase
+              mappedRows={mappedRows} targets={targets}
+              editedValues={editedValues} excluded={excluded}
+              onEditValue={(key, val) => setEditedValues((p) => ({ ...p, [key]: val }))}
+              onToggleExclude={(key) => setExcluded((prev) => {
+                const next = new Set(prev);
+                next.has(key) ? next.delete(key) : next.add(key);
+                return next;
+              })}
+              onApply={handleApply}
+              onBack={() => setPhase("mapping")}
+              onReset={reset}
+              files={files} onViewDebug={setDebugFile}
+              warning={mergedResult?.warning}
+            />
+          )}
         </DialogContent>
 
-        <DialogActions sx={{ px: 2, py: 1.5, borderTop: "1px solid #F3F4F6", justifyContent: "space-between" }}>
-          <Typography variant="caption" sx={{ color: "#9CA3AF" }}>
-            Use this view to verify OCR quality and check if field labels are parsed correctly
-          </Typography>
-          <Button
-            onClick={() => setDebugFile(null)}
-            sx={{ color: "#374151", textTransform: "none", fontWeight: 500 }}
-          >
-            Close
-          </Button>
-        </DialogActions>
+        {phase === "parsing" && (
+          <DialogActions sx={{ px: 3, py: 2, borderTop: "1px solid #F3F4F6", justifyContent: "space-between" }}>
+            <Typography variant="caption" sx={{ color: "#9CA3AF" }}>
+              {llmPending
+                ? "AI is analysing extracted content…"
+                : `${parsedCount} of ${totalCount} complete${errorCount > 0 ? ` · ${errorCount} failed` : ""}`}
+            </Typography>
+            <Button variant="contained" disabled startIcon={<CircularProgress size={16} color="inherit" />}
+              sx={{ bgcolor: "#395B45", fontWeight: 600, textTransform: "none", minWidth: 140 }}>
+              {llmPending ? "AI Mapping…" : "Analysing…"}
+            </Button>
+          </DialogActions>
+        )}
+
+        {phase === "upload" && (
+          <DialogActions sx={{ px: 3, py: 2, borderTop: "1px solid #F3F4F6" }}>
+            <Button onClick={handleClose} sx={{ color: "#6B7280", fontWeight: 500, textTransform: "none" }}>Cancel</Button>
+          </DialogActions>
+        )}
       </Dialog>
-    )}
+
+      {debugFile && <DebugViewer entry={debugFile} onClose={() => setDebugFile(null)} />}
     </>
   );
 }

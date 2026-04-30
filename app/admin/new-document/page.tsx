@@ -28,7 +28,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { DynamicField, TemplateFieldDef, FieldValue } from "@/components/dynamic-field";
 import { saveDraft, loadDraft, DraftFormData } from "@/lib/drafts";
-import AutoFillUploader from "@/components/AutoFillUploader";
+import AutoFillUploader, { ApplyValues } from "@/components/AutoFillUploader";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -299,8 +299,14 @@ function AdminDocumentBuilderContent() {
     }
   }
 
-  function handleAutoFillApply(values: Record<string, string>, keys: Set<string>) {
-    setFormValues((prev) => ({ ...prev, ...values }));
+  function handleAutoFillApply(values: ApplyValues, keys: Set<string>) {
+    setFormValues((prev) => {
+      const next = { ...prev };
+      for (const [k, v] of Object.entries(values)) {
+        next[k] = v as FieldValue;
+      }
+      return next;
+    });
     setAutoFilledKeys(keys);
     setFieldErrors((prev) => {
       const next = { ...prev };
@@ -641,6 +647,7 @@ function AdminDocumentBuilderContent() {
           field_key: f.field_key,
           field_label: f.field_label,
           field_type: f.field_type,
+          field_options: f.field_options,
         }))}
         onApply={handleAutoFillApply}
       />

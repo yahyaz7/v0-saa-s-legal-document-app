@@ -2,12 +2,12 @@
  * Server-side document text and field extraction.
  *
  * Routing by file type:
- *   PDF / image  → Google Document AI Form Parser (structured key-value pairs)
+ *   PDF / image  → Google Document AI Form Parser
+ *                  Returns both structured DocAIField[] AND the full raw text.
+ *                  The route uses both: structured fields for high-confidence
+ *                  key-value matching, raw text for regex fallback parsing.
  *   DOCX         → PizZip XML paragraph extraction
  *   TXT          → TextDecoder (UTF-8)
- *
- * Document AI returns structured DocAIField[] which the route feeds directly
- * into matchFieldsToTemplate(), bypassing raw-text regex extraction entirely.
  *
  * Unsupported formats and credential errors are surfaced as warning strings
  * rather than thrown exceptions so the route can return a graceful response.
@@ -18,26 +18,26 @@ import type { DocAIField } from "./documentAI";
 // ── Public types ──────────────────────────────────────────────────────────────
 
 export interface ExtractResult {
-  /** Plain text representation (used by raw-text viewer). */
+  /** Plain text representation — used by raw-text viewer and regex fallback parser. */
   text: string;
   /** Identifies which extraction path was taken. */
   method: string;
   /** Non-fatal advisory message shown to the user. */
   warning?: string;
   /**
-   * Structured key-value pairs from Document AI.
-   * Present only when method === "documentai".
-   * When present, the route uses these directly instead of
-   * running extractKeyValuePairs() on raw text.
+   * Structured key-value pairs from Document AI Form Parser.
+   * Present when method === "documentai" or "documentai-empty".
+   * The route merges these with regex pairs extracted from `text`
+   * so that nothing is missed even if Document AI misses a field.
    */
   docAIFields?: DocAIField[];
 }
 
 // ── Supported MIME types ──────────────────────────────────────────────────────
 
-const PDF_EXT   = ".pdf";
-const DOCX_EXT  = ".docx";
-const TXT_EXT   = ".txt";
+const PDF_EXT    = ".pdf";
+const DOCX_EXT   = ".docx";
+const TXT_EXT    = ".txt";
 const IMAGE_EXTS = new Set([".jpg", ".jpeg", ".png", ".tiff", ".tif", ".bmp", ".webp"]);
 
 // ── DOCX extraction via PizZip ────────────────────────────────────────────────
@@ -70,21 +70,29 @@ async function processWithDocumentAI(
 ): Promise<ExtractResult> {
   const { extractFieldsWithDocumentAI } = await import("./documentAI");
 
-  const fields = await extractFieldsWithDocumentAI(buffer, filename);
+  const { fields, rawText } = await extractFieldsWithDocumentAI(buffer, filename);
 
-  if (fields.length === 0) {
+  if (fields.length === 0 && !rawText.trim()) {
     return {
       text: "",
       method: "documentai-empty",
       warning:
-        "Document AI processed the file but found no form fields. " +
-        "The document may not contain a recognisable form structure.",
+        "Document AI processed the file but found no content. " +
+        "The document may be blank, scanned without text layer, or unreadable.",
       docAIFields: [],
     };
   }
 
-  const text = fields.map(({ label, value }) => `${label}: ${value}`).join("\n");
-  return { text, method: "documentai", docAIFields: fields };
+  // Build a human-readable text from structured fields for the debug viewer.
+  // The actual raw OCR text is stored separately in `text` for regex parsing.
+  const structuredText = fields.map(({ label, value }) => `${label}: ${value}`).join("\n");
+  const displayText = rawText.trim() || structuredText;
+
+  return {
+    text: displayText,
+    method: "documentai",
+    docAIFields: fields,
+  };
 }
 
 function hasCredentials(): boolean {

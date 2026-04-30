@@ -21,6 +21,12 @@ export interface DocAIField {
   confidence: number;
 }
 
+export interface DocAIResult {
+  fields: DocAIField[];
+  /** Full document text as extracted by Document AI — used for regex fallback parsing. */
+  rawText: string;
+}
+
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
 function resolveMimeType(filename: string): string {
@@ -88,8 +94,8 @@ function loadCredentials(): object {
 // ── Main export ───────────────────────────────────────────────────────────────
 
 /**
- * Send a document buffer to Document AI Form Parser and return all
- * detected key-value form fields with confidence scores.
+ * Send a document buffer to Document AI Form Parser and return structured
+ * form fields plus the full raw document text for regex fallback parsing.
  *
  * Throws on credential misconfiguration or API errors — callers are
  * responsible for catching and handling.
@@ -97,7 +103,7 @@ function loadCredentials(): object {
 export async function extractFieldsWithDocumentAI(
   buffer: ArrayBuffer,
   filename: string
-): Promise<DocAIField[]> {
+): Promise<DocAIResult> {
   const { DocumentProcessorServiceClient } = await import("@google-cloud/documentai");
 
   const credentials = loadCredentials() as Record<string, string>;
@@ -120,12 +126,25 @@ export async function extractFieldsWithDocumentAI(
   const doc = result.document;
   if (!doc) {
     console.warn("[documentAI] API returned no document object.");
-    return [];
+    return { fields: [], rawText: "" };
   }
 
   const fullText = doc.text ?? "";
   const fields: DocAIField[] = [];
-  const seen = new Set<string>();
+
+  // Labels that legitimately repeat across multiple arrest blocks in one document.
+  // For these we collect ALL values and join with " | " rather than first-wins.
+  const REPEATABLE = new Set([
+    "reason", "arrest time", "as number",
+    "arresting officer", "investigating officer",
+    "authorising det officer", "authorising det. officer", "authorising",
+    "escorting officer", "circumstances of arrest",
+    "offence date", "offence/charge summary", "offence status",
+  ]);
+
+  // first-wins for non-repeatable; multi-collect for repeatable
+  const seenOnce = new Set<string>();
+  const multiValues = new Map<string, { originalLabel: string; values: string[]; confidence: number }>();
 
   for (const page of doc.pages ?? []) {
     for (const field of page.formFields ?? []) {
@@ -134,19 +153,34 @@ export async function extractFieldsWithDocumentAI(
 
       if (!label || !value) continue;
 
-      const dedupeKey = label.toLowerCase().replace(/\s+/g, " ");
-      if (seen.has(dedupeKey)) continue;
-      seen.add(dedupeKey);
-
       const labelConf = field.fieldName?.confidence  ?? 0.85;
       const valueConf = field.fieldValue?.confidence ?? 0.85;
+      const conf = (labelConf + valueConf) / 2;
 
-      fields.push({ label, value, confidence: (labelConf + valueConf) / 2 });
+      const key = label.toLowerCase().replace(/\s+/g, " ");
+
+      if (REPEATABLE.has(key)) {
+        const existing = multiValues.get(key);
+        if (existing) {
+          if (!existing.values.includes(value)) existing.values.push(value);
+        } else {
+          multiValues.set(key, { originalLabel: label, values: [value], confidence: conf });
+        }
+      } else {
+        if (seenOnce.has(key)) continue;
+        seenOnce.add(key);
+        fields.push({ label, value, confidence: conf });
+      }
     }
   }
 
-  console.log(`[documentAI] extracted ${fields.length} form fields from "${filename}"`);
-  return fields;
+  // Flush repeatable labels — join multiple values with " | "
+  for (const { originalLabel, values, confidence } of multiValues.values()) {
+    fields.push({ label: originalLabel, value: values.join(" | "), confidence });
+  }
+
+  console.log(`[documentAI] extracted ${fields.length} form fields + ${fullText.length} chars raw text from "${filename}"`);
+  return { fields, rawText: fullText };
 }
 
 /**
@@ -158,3 +192,4 @@ export function docAIFieldsToPairs(
 ): Array<{ label: string; value: string }> {
   return fields.map(({ label, value }) => ({ label, value }));
 }
+
