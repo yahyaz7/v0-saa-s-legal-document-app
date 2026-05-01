@@ -1200,14 +1200,15 @@ export default function AutoFillUploader({ open, onClose, templateFields, onAppl
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         let json: any;
         try { json = await res.json(); } catch {
-          // Non-JSON response (e.g. Vercel/nginx 413 HTML page, gateway timeout, etc.)
-          // Apply the same friendly mapping as the !res.ok branch below.
+          // Non-JSON body — Vercel/nginx may return HTML for 413, 502, 504, etc.
+          // Body stream is already consumed by res.json() attempt, so read text via clone.
           let errMsg: string;
           if (res.status === 413) {
-            errMsg = "File too large for server (max 4.5 MB on Vercel). Try a smaller file or convert to PDF/DOCX.";
+            errMsg = "File too large — server rejected the upload (HTTP 413). Try a smaller file.";
+          } else if (res.status === 504 || res.status === 502) {
+            errMsg = `Gateway timeout (${res.status}) — the file took too long to process. Try a smaller or simpler file.`;
           } else {
-            const text = await res.text().catch(() => "");
-            errMsg = `Server error (${res.status})${text.trim() ? `: ${text.slice(0, 200)}` : " — no details returned."}`;
+            errMsg = `Upload failed with HTTP ${res.status}. The server returned a non-JSON response.`;
           }
           fileErrors.set(entry.id, errMsg);
           setFiles((prev) => prev.map((e) => e.id === entry.id ? { ...e, status: "error", error: errMsg } : e));
