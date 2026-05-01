@@ -21,8 +21,8 @@ interface DynamicFormEngineProps {
 
 // Fields that get auto-filled when arrest_VA is set to V.A. or Arrest
 const ARREST_VA_AUTOFILL_KEYS = new Set([
-  "time_of_advice_call",
-  "delay_over_45",
+  "time_of_advice_call_to_client",
+  "delay_over_45_mins",
   "reasons_for_delay",
   "left_details_with_custody",
   "requested_for_interview",
@@ -42,6 +42,7 @@ export default function DynamicFormEngine({
 
   // Tracks which field keys are currently locked by auto-fill
   const [lockedKeys, setLockedKeys] = useState<Set<string>>(new Set());
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
   // Phrase Bank focus management
   const [focusedFieldKey, setFocusedFieldKey] = useState<string | null>(null);
@@ -75,6 +76,11 @@ export default function DynamicFormEngine({
           map[f.field_key] = f.field_type === "checkbox" ? false : "";
         }
       });
+
+      // Always pre-fill delay fields with N/A if they are empty
+      if (!map["delay_over_45_mins"]) map["delay_over_45_mins"] = "N/A";
+      if (!map["reasons_for_delay"]) map["reasons_for_delay"] = "N/A";
+
       setFormData(map);
     } catch {
       setError("Network error while loading form");
@@ -83,18 +89,57 @@ export default function DynamicFormEngine({
     }
   }
 
+  function validateField(key: string, value: FieldValue): string | null {
+    if (typeof value !== "string" || !value.trim()) return null;
+
+    let totalMinutes = 0;
+    const timeMatch = value.match(/^(\d+):([0-5]\d)$/);
+
+    if (timeMatch) {
+      const h = parseInt(timeMatch[1], 10);
+      const m = parseInt(timeMatch[2], 10);
+      if (m % 6 !== 0) return "Minutes must be a multiple of 6";
+      totalMinutes = h * 60 + m;
+    } else {
+      const num = parseInt(value, 10);
+      if (isNaN(num)) return "Invalid format (use minutes or H:MM)";
+      if (num % 6 !== 0) return "Must be a multiple of 6 minutes";
+      totalMinutes = num;
+    }
+
+    // Travel Time & Waiting
+    if (key.match(/^travel_time_\d$/) || key.match(/^travel\s_time_\d$/) || key.match(/^waiting_\d$/)) {
+      if (totalMinutes > 360) return "Maximum 6 hours allowed"; // User said max 6 hours for all?
+    }
+
+    // Advice: capped at 6 hours (360 mins)
+    if (key.match(/^advice_inst_\d$/)) {
+      if (totalMinutes > 360) return "Maximum 6 hours (360 mins) allowed";
+    }
+
+    return null;
+  }
+
   function handleFieldChange(key: string, value: FieldValue) {
     let next = { ...formData, [key]: value };
 
+    // Validation
+    const errorMsg = validateField(key, value);
+    setValidationErrors((prev) => ({
+      ...prev,
+      [key]: errorMsg ?? "",
+    }));
+
     // Auto-populate and lock PACE form fields when arrest_VA changes
-    if (key === "arrest_VA") {
+    const lowerKey = key.toLowerCase();
+    if (lowerKey === "arrest_va") {
       const normalized = typeof value === "string" ? value.replace(/\./g, "").trim().toUpperCase() : "";
       if (normalized === "VA") {
         next = {
           ...next,
-          time_of_advice_call: "Advice call not claimed – attendance was for voluntary interview; advice provided in person.",
-          delay_over_45: "N/A - Always",
-          reasons_for_delay: "N/A",
+          time_of_advice_call_to_client: "Advice call not claimed – attendance was for voluntary interview; advice provided in person.",
+          delay_over_45_mins: "N.A.",
+          reasons_for_delay: "N.A.",
           left_details_with_custody: "N/A",
           requested_for_interview: "Yes",
           custody_record_checked: "N/A",
@@ -103,9 +148,9 @@ export default function DynamicFormEngine({
       } else if (normalized === "ARREST") {
         next = {
           ...next,
-          time_of_advice_call: "Advice call completed @ enter time - client advised in respect of confidentiality, the PACE clock, and the procedure to be followed.",
-          delay_over_45: "N/A",
-          reasons_for_delay: "N/A",
+          time_of_advice_call_to_client: "Advice call completed @ [TIME] – client advised in respect of confidentiality, the PACE clock, and the procedure to be followed.",
+          delay_over_45_mins: "N.A.",
+          reasons_for_delay: "N.A.",
           left_details_with_custody: "N/A",
           requested_for_interview: "Yes",
           custody_record_checked: "Yes",
@@ -176,7 +221,9 @@ export default function DynamicFormEngine({
                 value={formData[field.field_key]}
                 onChange={handleFieldChange}
                 onFocus={handleFocus}
-                readOnly={readOnly || lockedKeys.has(field.field_key)}
+                error={validationErrors[field.field_key]}
+                readOnly={readOnly || (lockedKeys.has(field.field_key) && field.field_key !== "time_of_advice_call_to_client")}
+                autoFilled={lockedKeys.has(field.field_key)}
               />
             </Box>
           ))}

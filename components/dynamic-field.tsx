@@ -27,10 +27,10 @@ import {
   InputAdornment,
   Chip,
 } from "@mui/material";
-import { DatePicker, LocalizationProvider } from "@mui/x-date-pickers";
+import { DatePicker, TimePicker, LocalizationProvider } from "@mui/x-date-pickers";
 import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
 import dayjs from "dayjs";
-import { Plus, Trash2, Search, X, CheckCircle2 } from "lucide-react";
+import { Plus, Trash2, Search, X, CheckCircle2, Clock } from "lucide-react";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -855,6 +855,7 @@ export const DynamicField = memo(function DynamicField({
   onFocus,
   onBlur,
 }: DynamicFieldProps) {
+  const [timeOpen, setTimeOpen] = useState(false);
   const strValue = typeof value === "string" ? value : "";
   const boolValue = typeof value === "boolean" ? value : false;
   // string[] for offence_search standalone; RepeaterRow[] for repeater
@@ -1003,6 +1004,76 @@ export const DynamicField = memo(function DynamicField({
         helperText={error}
         disabled={readOnly}
       />,
+      autoFilled
+    );
+  }
+
+  if (field.field_key === "time_of_advice_call_to_client") {
+    const iconButtonRef = useRef<HTMLButtonElement>(null);
+
+    const handleTimeChange = (newTime: dayjs.Dayjs | null) => {
+      if (!newTime) return;
+      const formattedTime = newTime.format("HH:mm");
+      const template = "Advice call completed @ [TIME] – client advised in respect of confidentiality, the PACE clock, and the procedure to be followed.";
+      const currentVal = strValue || template;
+
+      let newVal: string;
+      if (currentVal.includes("@") && currentVal.includes(" –")) {
+        newVal = currentVal.replace(/@ (.*?) –/, `@ ${formattedTime} –`);
+      } else if (currentVal.includes("@")) {
+        newVal = currentVal.split("@")[0] + "@ " + formattedTime + " – client advised...";
+      } else {
+        newVal = template.replace("[TIME]", formattedTime);
+      }
+      onChange(field.field_key, newVal);
+    };
+
+    return withAutoFill(
+      <LocalizationProvider dateAdapter={AdapterDayjs}>
+        <Box sx={{ position: "relative" }}>
+          <TextField
+            fullWidth
+            label={labelText}
+            value={strValue}
+            onChange={(e) => onChange(field.field_key, e.target.value)}
+            error={!!error}
+            helperText={error}
+            disabled={readOnly}
+            slotProps={{
+              input: {
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      ref={iconButtonRef}
+                      size="small"
+                      onClick={() => setTimeOpen(true)}
+                      disabled={readOnly}
+                      sx={{ color: "#395B45" }}
+                    >
+                      <Clock size={18} />
+                    </IconButton>
+                    <TimePicker
+                      open={timeOpen}
+                      onClose={() => setTimeOpen(false)}
+                      value={null}
+                      onChange={handleTimeChange}
+                      slotProps={{
+                        textField: {
+                          sx: { display: "none" },
+                        },
+                        popper: {
+                          anchorEl: iconButtonRef.current,
+                          placement: "bottom-end",
+                        },
+                      }}
+                    />
+                  </InputAdornment>
+                ),
+              },
+            }}
+          />
+        </Box>
+      </LocalizationProvider>,
       autoFilled
     );
   }

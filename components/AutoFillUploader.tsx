@@ -1205,11 +1205,16 @@ export default function AutoFillUploader({ open, onClose, templateFields, onAppl
         if (!res.ok) {
           const rawError: string = json?.error ?? `Server error ${res.status}`;
           // Map known server-side error patterns to friendly per-file messages
-          const friendlyError = /not configured|credential|document.?ai/i.test(rawError)
-            ? "This file type is not supported for extraction — upload as DOCX or TXT instead."
-            : /blank|unreadable|no content/i.test(rawError)
-            ? "No readable text found — the image may be blurry or low quality."
-            : rawError;
+          let friendlyError = rawError;
+          if (res.status === 413) {
+            friendlyError = "File too large for production server (max 4.5 MB). Try a smaller file or PDF.";
+          } else if (/not configured|credential|no-credentials/i.test(rawError)) {
+            friendlyError = "Image/PDF extraction is not configured on this server. Use DOCX or TXT instead.";
+          } else if (/blank|unreadable|no content|documentai-empty/i.test(rawError)) {
+            friendlyError = "No readable text found — the document may be blank or poor quality.";
+          } else if (/document.?ai.?failed/i.test(rawError) || /could not process/i.test(rawError)) {
+            friendlyError = `Extraction failed: ${rawError.split(":").pop()?.trim() || "Document AI error"}`;
+          }
           setFiles((prev) => prev.map((e) => e.id === entry.id ? { ...e, status: "error", error: friendlyError } : e));
         } else {
           const data: ParseResponse = json.data;
@@ -1222,36 +1227,19 @@ export default function AutoFillUploader({ open, onClose, templateFields, onAppl
     }
 
     if (!completed.length) {
-      const IMAGE_EXTS = /\.(jpe?g|png|bmp|tiff?|webp)$/i;
-      const PDF_EXT    = /\.pdf$/i;
       const failedFiles = files.filter((f) => f.status === "error");
-
+      const firstError = failedFiles[0]?.error ?? "";
+      
+      const IMAGE_EXTS = /\.(jpe?g|png|bmp|tiff?|webp)$/i;
       const allImageFails = failedFiles.length > 0 && failedFiles.every((f) => IMAGE_EXTS.test(f.file.name));
-      const allPdfFails   = failedFiles.length > 0 && failedFiles.every((f) => PDF_EXT.test(f.file.name));
-      const hasCredentialError = failedFiles.some((f) =>
-        /credential|document.?ai|google|ocr|not.?configured|not configured/i.test(f.error ?? ""),
-      );
-      const hasQualityError = failedFiles.some((f) =>
-        /blank|unreadable|no content|scanned|empty/i.test(f.error ?? ""),
-      );
+      const hasConfigError = failedFiles.some((f) => /configured|credential/i.test(f.error));
 
-      if (hasCredentialError && (allImageFails || allPdfFails)) {
-        setGlobalError(
-          "Image and PDF extraction is not available on this server. " +
-          "Please upload the document as a DOCX or TXT file instead — these work without any additional setup.",
-        );
-      } else if (allImageFails && hasQualityError) {
-        setGlobalError(
-          "The image could not be read — the text may be too blurry, low-contrast, or the photo was taken in poor lighting. " +
-          "Try again with better lighting and hold the camera steady, or scan the document as a PDF/DOCX.",
-        );
+      if (hasConfigError) {
+        setGlobalError("Image/PDF extraction is not configured in this environment. Please upload as DOCX or TXT.");
       } else if (allImageFails) {
-        setGlobalError(
-          "The image could not be processed. Make sure it is a clear, well-lit photo of the document. " +
-          "For the most reliable results, upload a DOCX or PDF version instead.",
-        );
+        setGlobalError(`Failed to process image: ${firstError || "Check file quality and try again."}`);
       } else {
-        setGlobalError("No files could be parsed. Check the individual file errors above and try again.");
+        setGlobalError(firstError || "No files could be parsed. Please check the individual file errors.");
       }
       setPhase("upload");
       return;

@@ -174,6 +174,9 @@ function DocumentBuilderContent() {
           const draftData = await loadDraft(supabase, draftParam);
           setFormValues(draftData ? applyDraftData(base, draftData) : base);
         } else {
+          // Always pre-fill delay fields with N/A for new documents
+          if (base["delay_over_45_mins"] === "") base["delay_over_45_mins"] = "N/A";
+          if (base["reasons_for_delay"] === "") base["reasons_for_delay"] = "N/A";
           setFormValues(base);
         }
 
@@ -214,21 +217,21 @@ function DocumentBuilderContent() {
   }, [templateFields]);
 
   // ── Auto-fill rules for arrest_VA field ───────────────────────────────────
-  const PACE_AUTOFILL_KEYS = ["time_of_advice_call","delay_over_45","reasons_for_delay","left_details_with_custody","requested_for_interview","custody_record_checked"];
+  const PACE_AUTOFILL_KEYS = ["time_of_advice_call_to_client", "delay_over_45_mins", "reasons_for_delay", "left_details_with_custody", "requested_for_interview", "custody_record_checked"];
 
   const PACE_AUTOFILL: Record<string, Record<string, string>> = {
     VA: {
-      time_of_advice_call: "Advice call not claimed – attendance was for voluntary interview; advice provided in person.",
-      delay_over_45: "N/A - Always",
-      reasons_for_delay: "N/A",
+      time_of_advice_call_to_client: "Advice call not claimed – attendance was for voluntary interview; advice provided in person.",
+      delay_over_45_mins: "N.A.",
+      reasons_for_delay: "N.A.",
       left_details_with_custody: "N/A",
       requested_for_interview: "Yes",
       custody_record_checked: "N/A",
     },
     ARREST: {
-      time_of_advice_call: "Advice call completed @ enter time - client advised in respect of confidentiality, the PACE clock, and the procedure to be followed.",
-      delay_over_45: "N/A",
-      reasons_for_delay: "N/A",
+      time_of_advice_call_to_client: "Advice call completed @ [TIME] – client advised in respect of confidentiality, the PACE clock, and the procedure to be followed.",
+      delay_over_45_mins: "N.A.",
+      reasons_for_delay: "N.A.",
       left_details_with_custody: "N/A",
       requested_for_interview: "Yes",
       custody_record_checked: "Yes",
@@ -237,7 +240,55 @@ function DocumentBuilderContent() {
 
   // ── Form handlers ──────────────────────────────────────────────────────────
   function handleFieldChange(key: string, value: FieldValue) {
-    if (key === "arrest_VA") {
+    // Validation logic for time-based fields
+    if (typeof value === "string" && value.trim()) {
+      let totalMinutes = 0;
+      let isValid = true;
+      let error = "";
+
+      const timeMatch = value.match(/^(\d+):([0-5]\d)$/);
+      if (timeMatch) {
+        const h = parseInt(timeMatch[1], 10);
+        const m = parseInt(timeMatch[2], 10);
+        if (m % 6 !== 0) {
+          isValid = false;
+          error = "Minutes must be a multiple of 6";
+        }
+        totalMinutes = h * 60 + m;
+      } else {
+        const num = parseInt(value, 10);
+        if (isNaN(num)) {
+          isValid = false;
+          error = "Invalid format (use minutes or H:MM)";
+        } else if (num % 6 !== 0) {
+          isValid = false;
+          error = "Must be a multiple of 6 minutes";
+        }
+        totalMinutes = num;
+      }
+
+      if (isValid) {
+        if (key.match(/^travel_time_\d$/) || key.match(/^travel\s_time_\d$/) || key.match(/^waiting_\d$/)) {
+          if (totalMinutes > 360) {
+            setFieldErrors((prev) => ({ ...prev, [key]: "Maximum 6 hours allowed" }));
+          } else {
+            setFieldErrors((prev) => { const next = { ...prev }; delete next[key]; return next; });
+          }
+        }
+        if (key.match(/^advice_inst_\d$/)) {
+          if (totalMinutes > 360) {
+            setFieldErrors((prev) => ({ ...prev, [key]: "Maximum 6 hours (360 mins) allowed" }));
+          } else {
+            setFieldErrors((prev) => { const next = { ...prev }; delete next[key]; return next; });
+          }
+        }
+      } else if (error && (key.match(/^(travel_time_|travel\s_time_|waiting_|advice_inst_)/))) {
+        setFieldErrors((prev) => ({ ...prev, [key]: error }));
+      }
+    }
+
+    const lowerKey = key.toLowerCase();
+    if (lowerKey === "arrest_va") {
       const normalized = typeof value === "string" ? value.replace(/\./g, "").trim().toUpperCase() : "";
       const autofill = PACE_AUTOFILL[normalized];
       if (autofill) {
@@ -251,7 +302,7 @@ function DocumentBuilderContent() {
     } else {
       setFormValues((prev) => ({ ...prev, [key]: value }));
     }
-    if (fieldErrors[key]) {
+    if (fieldErrors[key] && !key.match(/^(travel_time_|travel\s_time_|waiting_|advice_inst_)/)) {
       setFieldErrors((prev) => { const next = { ...prev }; delete next[key]; return next; });
     }
   }
@@ -523,8 +574,8 @@ function DocumentBuilderContent() {
                           onFocus={handleFieldFocus}
                           onBlur={handleFieldBlur}
                           error={fieldErrors[field.field_key]}
-                          readOnly={lockedKeys.has(field.field_key)}
-                          autoFilled={autoFilledKeys.has(field.field_key)}
+                          readOnly={lockedKeys.has(field.field_key) && field.field_key !== "time_of_advice_call_to_client"}
+                          autoFilled={lockedKeys.has(field.field_key) || autoFilledKeys.has(field.field_key)}
                         />
                       </Grid>
                     ))}

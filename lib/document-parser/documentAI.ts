@@ -67,25 +67,35 @@ function resolveTextAnchor(anchor: any, fullText: string): string {
 // ── Credentials ───────────────────────────────────────────────────────────────
 
 function loadCredentials(): object {
-  const raw = process.env.GOOGLE_CREDENTIALS_JSON;
+  let raw = process.env.GOOGLE_CREDENTIALS_JSON;
 
   if (!raw || raw === "PASTE_YOUR_SERVICE_ACCOUNT_JSON_HERE") {
     throw new Error(
       "[documentAI] GOOGLE_CREDENTIALS_JSON is not configured. " +
-      "Add your service account JSON to .env.local."
+      "Add your service account JSON to your environment variables."
     );
   }
 
-  // Try parsing as-is first; fall back to collapsing injected newlines.
+  // Handle common env var issues: literal newlines, escaped newlines, or whitespace
+  raw = raw.trim();
+
   try {
     return JSON.parse(raw);
-  } catch {
+  } catch (firstErr) {
     try {
-      return JSON.parse(raw.replace(/\n\s*/g, " ").trim());
-    } catch {
+      // Try resolving escaped newlines (e.g. \n) if they were double-escaped or literal
+      const cleaned = raw
+        .replace(/\\n/g, "\n") // Convert escaped \n to actual newline
+        .replace(/\n\s*/g, ""); // Remove all newlines and following space for valid JSON
+      return JSON.parse(cleaned);
+    } catch (secondErr) {
+      console.error("[documentAI] Failed to parse GOOGLE_CREDENTIALS_JSON.", {
+        rawLength: raw.length,
+        error: secondErr instanceof Error ? secondErr.message : String(secondErr)
+      });
       throw new Error(
         "[documentAI] GOOGLE_CREDENTIALS_JSON is not valid JSON. " +
-        "Ensure the full service account key file is stored on a single line."
+        "Ensure the service account key is correctly pasted into your environment variables."
       );
     }
   }
@@ -115,13 +125,27 @@ export async function extractFieldsWithDocumentAI(
     apiEndpoint: `${LOCATION}-documentai.googleapis.com`,
   });
 
-  const [result] = await client.processDocument({
-    name: PROCESSOR_NAME,
-    rawDocument: {
-      content: Buffer.from(buffer),
-      mimeType: resolveMimeType(filename),
-    },
-  });
+  let result;
+  try {
+    const mimeType = resolveMimeType(filename);
+    console.log(`[documentAI] sending to API: ${filename} (mime: ${mimeType}, size: ${buffer.byteLength})`);
+    
+    [result] = await client.processDocument({
+      name: PROCESSOR_NAME,
+      rawDocument: {
+        content: Buffer.from(buffer),
+        mimeType,
+      },
+    });
+  } catch (apiErr: any) {
+    console.error("[documentAI] API call failed:", {
+      message: apiErr.message,
+      code: apiErr.code,
+      details: apiErr.details,
+      stack: apiErr.stack,
+    });
+    throw apiErr;
+  }
 
   const doc = result.document;
   if (!doc) {
