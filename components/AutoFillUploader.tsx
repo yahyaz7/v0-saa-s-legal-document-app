@@ -1185,6 +1185,9 @@ export default function AutoFillUploader({ open, onClose, templateFields, onAppl
     setLlmPending(false);
 
     const completed: ParseResponse[] = [];
+    // Track errors locally — reading from `files` state here would give the stale
+    // closure snapshot (before any setFiles() calls), not the updated values.
+    const fileErrors = new Map<string, string>(); // id → error message
 
     // Step 1: Extract text from all files
     for (const entry of files) {
@@ -1198,7 +1201,9 @@ export default function AutoFillUploader({ open, onClose, templateFields, onAppl
         let json: any;
         try { json = await res.json(); } catch {
           const text = await res.text().catch(() => "");
-          setFiles((prev) => prev.map((e) => e.id === entry.id ? { ...e, status: "error", error: `Server error (${res.status}): ${text.slice(0, 200) || "no details"}` } : e));
+          const errMsg = `Server error (${res.status}): ${text.slice(0, 200) || "no details"}`;
+          fileErrors.set(entry.id, errMsg);
+          setFiles((prev) => prev.map((e) => e.id === entry.id ? { ...e, status: "error", error: errMsg } : e));
           continue;
         }
 
@@ -1215,6 +1220,12 @@ export default function AutoFillUploader({ open, onClose, templateFields, onAppl
           } else if (/document.?ai.?failed/i.test(rawError) || /could not process/i.test(rawError)) {
             friendlyError = `Extraction failed: ${rawError.split(":").pop()?.trim() || "Document AI error"}`;
           }
+          // Always show the raw server error — prevents the generic "no details" fallback
+          // for unexpected errors (gRPC failures, quota limits, permission errors, etc.)
+          if (friendlyError === rawError && rawError.length > 0) {
+            friendlyError = `Error (${res.status}): ${rawError.slice(0, 300)}`;
+          }
+          fileErrors.set(entry.id, friendlyError);
           setFiles((prev) => prev.map((e) => e.id === entry.id ? { ...e, status: "error", error: friendlyError } : e));
         } else {
           const data: ParseResponse = json.data;
@@ -1222,17 +1233,19 @@ export default function AutoFillUploader({ open, onClose, templateFields, onAppl
           setFiles((prev) => prev.map((e) => e.id === entry.id ? { ...e, status: "done", result: data } : e));
         }
       } catch (err) {
-        setFiles((prev) => prev.map((e) => e.id === entry.id ? { ...e, status: "error", error: err instanceof Error ? err.message : "Unexpected error." } : e));
+        const errMsg = err instanceof Error ? err.message : "Unexpected error.";
+        fileErrors.set(entry.id, errMsg);
+        setFiles((prev) => prev.map((e) => e.id === entry.id ? { ...e, status: "error", error: errMsg } : e));
       }
     }
 
     if (!completed.length) {
-      const failedFiles = files.filter((f) => f.status === "error");
-      const firstError = failedFiles[0]?.error ?? "";
-      
+      // Use local fileErrors map — `files` here is the stale closure, not updated state
       const IMAGE_EXTS = /\.(jpe?g|png|bmp|tiff?|webp)$/i;
-      const allImageFails = failedFiles.length > 0 && failedFiles.every((f) => IMAGE_EXTS.test(f.file.name));
-      const hasConfigError = failedFiles.some((f) => /configured|credential/i.test(f.error));
+      const failedEntries = files.map((f) => ({ file: f.file, error: fileErrors.get(f.id) ?? "" })).filter((x) => x.error);
+      const firstError = failedEntries[0]?.error ?? "";
+      const allImageFails = failedEntries.length > 0 && failedEntries.every((x) => IMAGE_EXTS.test(x.file.name));
+      const hasConfigError = failedEntries.some((x) => /configured|credential/i.test(x.error));
 
       if (hasConfigError) {
         setGlobalError("Image/PDF extraction is not configured in this environment. Please upload as DOCX or TXT.");
