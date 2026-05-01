@@ -87,7 +87,7 @@ function AdminTemplatesContent() {
   return (
     <Box>
       {/* Header */}
-      <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", mb: 4 }}>
+      <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", mb: { xs: 2.5, sm: 4 }, gap: 1 }}>
         <Box>
           <Typography variant="h5" sx={{ fontWeight: 700, color: "#111827" }}>Templates</Typography>
           <Typography variant="body2" sx={{ color: "#6B7280", mt: 0.5 }}>
@@ -98,8 +98,9 @@ function AdminTemplatesContent() {
           component={Link}
           href="/admin/templates/manage"
           variant="contained"
-          startIcon={<Plus size={16} />}
-          sx={{ bgcolor: "#395B45", "&:hover": { bgcolor: "#2D4A38" }, fontWeight: 600, textTransform: "none", borderRadius: 2 }}
+          size="small"
+          startIcon={<Plus size={15} />}
+          sx={{ bgcolor: "#395B45", "&:hover": { bgcolor: "#2D4A38" }, fontWeight: 600, textTransform: "none", borderRadius: 2, flexShrink: 0, fontSize: { xs: "0.75rem", sm: "0.85rem", md: "0.875rem" }, px: { xs: 1.5, sm: 2 }, py: { xs: "5px", sm: "6px" } }}
         >
           New Template
         </Button>

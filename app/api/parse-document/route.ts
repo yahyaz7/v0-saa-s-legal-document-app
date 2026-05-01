@@ -41,6 +41,15 @@ export async function POST(req: NextRequest) {
     return err(e instanceof Error ? e.message : "Text extraction failed", 500);
   }
 
+  // Surface credential / config failures as proper errors so the client can show a specific message
+  if (extractResult.method === "no-credentials") {
+    return err(extractResult.warning ?? "Image/PDF extraction is not configured on this server.", 422);
+  }
+
+  if (extractResult.method === "documentai-failed") {
+    return err(extractResult.warning ?? "Document AI could not process this file.", 422);
+  }
+
   if (!extractResult.text.trim() && !extractResult.docAIFields?.length) {
     return ok({
       raw_pairs: [],

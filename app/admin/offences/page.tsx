@@ -345,7 +345,7 @@ export default function AdminOffencesPage() {
   return (
     <Box>
       {/* ── Page header ── */}
-      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 4 }}>
+      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: { xs: 2.5, sm: 4 }, gap: 1, flexWrap: "wrap" }}>
         <Box>
           <Typography variant="h5" sx={{ fontWeight: 700, color: "#111827" }}>
             Offences Database
@@ -354,10 +354,11 @@ export default function AdminOffencesPage() {
             Manage the global library of UK criminal offences available to all firms
           </Typography>
         </Box>
-        <Box sx={{ display: "flex", gap: 1.5 }}>
+        <Box sx={{ display: "flex", gap: 1, flexShrink: 0 }}>
           <Button
             variant="outlined"
-            startIcon={<Upload size={15} />}
+            size="small"
+            startIcon={<Upload size={14} />}
             onClick={openImport}
             sx={{
               color: "#395B45",
@@ -365,6 +366,9 @@ export default function AdminOffencesPage() {
               textTransform: "none",
               fontWeight: 600,
               borderRadius: 2,
+              fontSize: { xs: "0.72rem", sm: "0.8rem", md: "0.875rem" },
+              px: { xs: 1, sm: 1.5, md: 2 },
+              py: { xs: "4px", sm: "5px" },
               "&:hover": { bgcolor: "rgba(57,91,69,0.05)" },
             }}
           >
@@ -372,7 +376,8 @@ export default function AdminOffencesPage() {
           </Button>
           <Button
             variant="contained"
-            startIcon={<Plus size={15} />}
+            size="small"
+            startIcon={<Plus size={14} />}
             onClick={openAdd}
             sx={{
               bgcolor: "#395B45",
@@ -380,6 +385,9 @@ export default function AdminOffencesPage() {
               textTransform: "none",
               fontWeight: 600,
               borderRadius: 2,
+              fontSize: { xs: "0.72rem", sm: "0.8rem", md: "0.875rem" },
+              px: { xs: 1, sm: 1.5, md: 2 },
+              py: { xs: "4px", sm: "5px" },
             }}
           >
             Add Offence

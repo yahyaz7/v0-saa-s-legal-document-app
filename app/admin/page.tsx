@@ -123,22 +123,26 @@ export default function AdminOverviewPage() {
   return (
     <Box>
       {/* Header */}
-      <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", mb: 4 }}>
+      <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", mb: { xs: 2.5, sm: 4 }, gap: 1 }}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
           <LayoutDashboard size={20} color="#395B45" />
           <Box>
-            <Typography variant="h5" sx={{ fontWeight: 700, color: "#111827" }}>Overview</Typography>
-            <Typography variant="body2" sx={{ color: "#6B7280", mt: 0.25 }}>
+            <Typography variant="h5" sx={{ fontWeight: 700, color: "#111827", fontSize: { xs: "1.15rem", sm: "1.5rem" } }}>Overview</Typography>
+            <Typography variant="body2" sx={{ color: "#6B7280", mt: 0.25, fontSize: { xs: "0.78rem", sm: "0.875rem" } }}>
               {loadingFirm ? <Skeleton width={160} /> : `${firm?.name ?? "Your Firm"} · Firm Admin`}
             </Typography>
           </Box>
         </Box>
         <Button
           variant="contained"
-          startIcon={<Plus size={16} />}
+          size="small"
+          startIcon={<Plus size={15} />}
           component={Link}
           href="/admin/documents"
-          sx={{ bgcolor: "#395B45", "&:hover": { bgcolor: "#2D4A38" }, fontWeight: 600, textTransform: "none" }}
+          sx={{
+            bgcolor: "#395B45", "&:hover": { bgcolor: "#2D4A38" }, fontWeight: 600, textTransform: "none",
+            flexShrink: 0, fontSize: { xs: "0.75rem", sm: "0.85rem", md: "0.875rem" }, px: { xs: 1.5, sm: 2 }, py: { xs: "5px", sm: "6px" },
+          }}
         >
           New Document
         </Button>
@@ -147,11 +151,11 @@ export default function AdminOverviewPage() {
       {error && <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>}
 
       {/* ── Stat Cards ──────────────────────────────────────────────────── */}
-      <Box sx={{ display: "flex", gap: 2, mb: 4, flexWrap: "wrap" }}>
+      <Box sx={{ display: "flex", gap: { xs: 1.5, sm: 2 }, mb: { xs: 2.5, sm: 4 }, flexWrap: "wrap" }}>
         {/* Firm */}
-        <Card elevation={0} sx={{ border: "1px solid #E5E7EB", borderRadius: 2, flex: "1 1 180px" }}>
-          <CardContent sx={{ display: "flex", alignItems: "center", gap: 2, py: "16px !important" }}>
-            <Box sx={{ bgcolor: "#F0FDF4", p: 1.5, borderRadius: 1.5 }}><Building2 size={20} color="#395B45" /></Box>
+        <Card elevation={0} sx={{ border: "1px solid #E5E7EB", borderRadius: 2, flex: "1 1 150px" }}>
+          <CardContent sx={{ display: "flex", alignItems: "center", gap: { xs: 1.5, sm: 2 }, py: "16px !important", px: { xs: 1.5, sm: 2 } }}>
+            <Box sx={{ bgcolor: "#F0FDF4", p: { xs: 1, sm: 1.5 }, borderRadius: 1.5, flexShrink: 0 }}><Building2 size={20} color="#395B45" /></Box>
             <Box>
               {loadingFirm ? <Skeleton width={100} height={26} /> : (
                 <Typography variant="subtitle1" sx={{ fontWeight: 700, color: "#111827", lineHeight: 1.2 }}>{firm?.name ?? "—"}</Typography>
@@ -162,12 +166,12 @@ export default function AdminOverviewPage() {
         </Card>
 
         {/* Team */}
-        <Card elevation={0} sx={{ border: "1px solid #E5E7EB", borderRadius: 2, flex: "1 1 160px" }}>
-          <CardContent sx={{ display: "flex", alignItems: "center", gap: 2, py: "16px !important" }}>
-            <Box sx={{ bgcolor: "#EEF2FF", p: 1.5, borderRadius: 1.5 }}><Users size={20} color="#6366F1" /></Box>
+        <Card elevation={0} sx={{ border: "1px solid #E5E7EB", borderRadius: 2, flex: "1 1 120px" }}>
+          <CardContent sx={{ display: "flex", alignItems: "center", gap: { xs: 1.5, sm: 2 }, py: "16px !important", px: { xs: 1.5, sm: 2 } }}>
+            <Box sx={{ bgcolor: "#EEF2FF", p: { xs: 1, sm: 1.5 }, borderRadius: 1.5, flexShrink: 0 }}><Users size={20} color="#6366F1" /></Box>
             <Box>
               {loadingFirm ? <Skeleton width={40} height={30} /> : (
-                <Typography variant="h5" sx={{ fontWeight: 700, lineHeight: 1.1, color: "#111827" }}>{firm?.userCount ?? 0}</Typography>
+                <Typography variant="h5" sx={{ fontWeight: 700, lineHeight: 1.1, color: "#111827", fontSize: { xs: "1.3rem", sm: "1.5rem" } }}>{firm?.userCount ?? 0}</Typography>
               )}
               <Typography variant="caption" sx={{ color: "#6B7280" }}>Team Members</Typography>
             </Box>
@@ -175,12 +179,12 @@ export default function AdminOverviewPage() {
         </Card>
 
         {/* My Drafts */}
-        <Card elevation={0} sx={{ border: "1px solid #E5E7EB", borderRadius: 2, flex: "1 1 160px" }}>
-          <CardContent sx={{ display: "flex", alignItems: "center", gap: 2, py: "16px !important" }}>
-            <Box sx={{ bgcolor: "#FFFBEB", p: 1.5, borderRadius: 1.5 }}><FileClock size={20} color="#D97706" /></Box>
+        <Card elevation={0} sx={{ border: "1px solid #E5E7EB", borderRadius: 2, flex: "1 1 120px" }}>
+          <CardContent sx={{ display: "flex", alignItems: "center", gap: { xs: 1.5, sm: 2 }, py: "16px !important", px: { xs: 1.5, sm: 2 } }}>
+            <Box sx={{ bgcolor: "#FFFBEB", p: { xs: 1, sm: 1.5 }, borderRadius: 1.5, flexShrink: 0 }}><FileClock size={20} color="#D97706" /></Box>
             <Box>
               {loadingDocs ? <Skeleton width={40} height={30} /> : (
-                <Typography variant="h5" sx={{ fontWeight: 700, lineHeight: 1.1, color: "#111827" }}>{stats.drafts}</Typography>
+                <Typography variant="h5" sx={{ fontWeight: 700, lineHeight: 1.1, color: "#111827", fontSize: { xs: "1.3rem", sm: "1.5rem" } }}>{stats.drafts}</Typography>
               )}
               <Typography variant="caption" sx={{ color: "#6B7280" }}>My Drafts</Typography>
             </Box>
@@ -188,12 +192,12 @@ export default function AdminOverviewPage() {
         </Card>
 
         {/* Generated */}
-        <Card elevation={0} sx={{ border: "1px solid #E5E7EB", borderRadius: 2, flex: "1 1 160px" }}>
-          <CardContent sx={{ display: "flex", alignItems: "center", gap: 2, py: "16px !important" }}>
-            <Box sx={{ bgcolor: "rgba(57,91,69,0.08)", p: 1.5, borderRadius: 1.5 }}><FileDown size={20} color="#395B45" /></Box>
+        <Card elevation={0} sx={{ border: "1px solid #E5E7EB", borderRadius: 2, flex: "1 1 120px" }}>
+          <CardContent sx={{ display: "flex", alignItems: "center", gap: { xs: 1.5, sm: 2 }, py: "16px !important", px: { xs: 1.5, sm: 2 } }}>
+            <Box sx={{ bgcolor: "rgba(57,91,69,0.08)", p: { xs: 1, sm: 1.5 }, borderRadius: 1.5, flexShrink: 0 }}><FileDown size={20} color="#395B45" /></Box>
             <Box>
               {loadingDocs ? <Skeleton width={40} height={30} /> : (
-                <Typography variant="h5" sx={{ fontWeight: 700, lineHeight: 1.1, color: "#111827" }}>{stats.generated}</Typography>
+                <Typography variant="h5" sx={{ fontWeight: 700, lineHeight: 1.1, color: "#111827", fontSize: { xs: "1.3rem", sm: "1.5rem" } }}>{stats.generated}</Typography>
               )}
               <Typography variant="caption" sx={{ color: "#6B7280" }}>Generated</Typography>
             </Box>
@@ -202,7 +206,7 @@ export default function AdminOverviewPage() {
       </Box>
 
       {/* ── Two-column content ───────────────────────────────────────────── */}
-      <Box sx={{ display: "flex", gap: 3, flexWrap: "wrap", alignItems: "flex-start" }}>
+      <Box sx={{ display: "flex", gap: { xs: 2, sm: 3 }, flexWrap: "wrap", alignItems: "flex-start" }}>
 
         {/* Recent Drafts */}
         <Box sx={{ flex: "1 1 340px", minWidth: 0 }}>

@@ -9,11 +9,11 @@ import {
   Chip, TextField, Tooltip, IconButton, Paper,
   LinearProgress, List, ListItem, ListItemText,
   Tabs, Tab, Select, MenuItem, FormControl,
-  Divider,
+  Divider, useMediaQuery, useTheme,
 } from "@mui/material";
 import {
   Upload, X, FileText, CheckCircle, AlertCircle, Info,
-  Sparkles, Trash2, Eye, Camera, ZoomIn, ArrowRight,
+  Wand2, Trash2, Eye, Camera, ZoomIn, ArrowRight,
   Link2, Link2Off, ChevronDown, Layers, Copy,
 } from "lucide-react";
 import type { LLMMapping } from "@/app/api/llm-map/route";
@@ -340,9 +340,7 @@ interface UploadPhaseProps {
   onCapturePhoto: () => void;
   onRemoveCapture: (id: string) => void;
   onClearCaptures: () => void;
-  onConfirmCaptures: () => void;
   onRetryCamera: () => void;
-  onExtract: () => void;
 }
 
 function UploadPhase({
@@ -350,7 +348,7 @@ function UploadPhase({
   videoRef, canvasRef, inputRef,
   onTabChange, onAddFiles, onRemoveFile, onClearFiles,
   onDrop, onCapturePhoto, onRemoveCapture, onClearCaptures,
-  onConfirmCaptures, onRetryCamera, onExtract,
+  onRetryCamera,
 }: UploadPhaseProps) {
   return (
     <>
@@ -384,19 +382,19 @@ function UploadPhase({
               border: "2px dashed", borderRadius: 2,
               borderColor: files.length > 0 ? "#395B45" : "#D1D5DB",
               bgcolor: files.length > 0 ? "rgba(57,91,69,0.04)" : "#FAFAFA",
-              p: 3, textAlign: "center", cursor: "pointer", transition: "all 0.2s",
+              p: { xs: 3, sm: 2.5 }, textAlign: "center", cursor: "pointer", transition: "all 0.2s",
               "&:hover": { borderColor: "#395B45", bgcolor: "rgba(57,91,69,0.04)" },
             }}
           >
             <input ref={inputRef} type="file" accept={ACCEPTED} multiple style={{ display: "none" }}
               onChange={(e) => { if (e.target.files?.length) onAddFiles(e.target.files); e.target.value = ""; }}
             />
-            <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
-              <Box sx={{ bgcolor: "#F3F4F6", borderRadius: "50%", p: 1.5, display: "flex" }}>
-                <Upload size={24} color="#9CA3AF" />
+            <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 0.75 }}>
+              <Box sx={{ bgcolor: "#F3F4F6", borderRadius: "50%", p: 1.25, display: "flex" }}>
+                <Upload size={22} color="#9CA3AF" />
               </Box>
               <Box>
-                <Typography sx={{ fontWeight: 600, color: "#374151", fontSize: "0.95rem" }}>
+                <Typography sx={{ fontWeight: 600, color: "#374151", fontSize: "0.9rem" }}>
                   Drop files here or click to browse
                 </Typography>
                 <Typography variant="caption" sx={{ color: "#9CA3AF", display: "block", mt: 0.25 }}>
@@ -436,10 +434,9 @@ function UploadPhase({
             </Box>
           )}
 
-          <Box sx={{ mt: 2, p: 1.5, bgcolor: "#F0F9FF", borderRadius: 1.5, border: "1px solid #BAE6FD" }}>
-            <Typography variant="caption" sx={{ color: "#0369A1", fontWeight: 600, display: "block", mb: 0.5 }}>For best results:</Typography>
-            <Typography variant="caption" sx={{ color: "#0369A1", display: "block" }}>• Upload both custody record and interview notes together</Typography>
-            <Typography variant="caption" sx={{ color: "#0369A1", display: "block" }}>• DOCX and TXT give the most accurate extraction — PDFs and images use OCR</Typography>
+          <Box sx={{ mt: 1.5, px: 1.5, py: 1, bgcolor: "#F0F9FF", borderRadius: 1.5, border: "1px solid #BAE6FD", display: "flex", flexWrap: "wrap", gap: { xs: 0.25, sm: 1.5 }, alignItems: "flex-start" }}>
+            <Typography variant="caption" sx={{ color: "#0369A1", fontWeight: 700, whiteSpace: "nowrap" }}>Tip:</Typography>
+            <Typography variant="caption" sx={{ color: "#0369A1" }}>Upload custody record + interview notes together for best results. DOCX/TXT files extract most accurately.</Typography>
           </Box>
         </>
       )}
@@ -448,8 +445,11 @@ function UploadPhase({
         <Box>
           {cameraError && (
             <Alert severity="error" sx={{ mb: 2, borderRadius: 1.5 }}>
-              {cameraError}
-              <Button size="small" onClick={onRetryCamera} sx={{ ml: 1, textTransform: "none", fontWeight: 600, color: "#DC2626" }}>Retry</Button>
+              <Typography sx={{ fontSize: "0.85rem", mb: 1 }}>{cameraError}</Typography>
+              <Button size="small" variant="outlined" onClick={onRetryCamera}
+                sx={{ textTransform: "none", fontWeight: 600, color: "#DC2626", borderColor: "#DC2626", minHeight: 36, "&:hover": { bgcolor: "rgba(220,38,38,0.06)" } }}>
+                Retry Camera
+              </Button>
             </Alert>
           )}
           {!cameraError && (
@@ -498,27 +498,13 @@ function UploadPhase({
             </Box>
           )}
 
-          <Box sx={{ mt: 1, p: 1.5, bgcolor: "#F0F9FF", borderRadius: 1.5, border: "1px solid #BAE6FD" }}>
-            <Typography variant="caption" sx={{ color: "#0369A1", fontWeight: 600, display: "block", mb: 0.5 }}>Camera tips:</Typography>
-            <Typography variant="caption" sx={{ color: "#0369A1", display: "block" }}>• Hold the document flat with even lighting for best OCR accuracy</Typography>
-            <Typography variant="caption" sx={{ color: "#0369A1", display: "block" }}>• Capture each page separately, then press "Add to Queue"</Typography>
+          <Box sx={{ mt: 1, px: 1.5, py: 1, bgcolor: "#F0F9FF", borderRadius: 1.5, border: "1px solid #BAE6FD", display: "flex", flexWrap: "wrap", gap: 0.5, alignItems: "flex-start" }}>
+            <Typography variant="caption" sx={{ color: "#0369A1", fontWeight: 700, whiteSpace: "nowrap" }}>Tip:</Typography>
+            <Typography variant="caption" sx={{ color: "#0369A1" }}>Hold document flat with even lighting. Capture each page separately, then tap "Add Photos".</Typography>
           </Box>
         </Box>
       )}
 
-      <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 1, mt: 2 }}>
-        {uploadTab === "camera" && capturedPhotos.length > 0 && (
-          <Button variant="outlined" onClick={onConfirmCaptures} startIcon={<ZoomIn size={16} />}
-            sx={{ borderColor: "#395B45", color: "#395B45", fontWeight: 600, textTransform: "none" }}>
-            Add {capturedPhotos.length} Photo{capturedPhotos.length !== 1 ? "s" : ""} to Queue
-          </Button>
-        )}
-        <Button variant="contained" onClick={onExtract} disabled={files.length === 0}
-          startIcon={<Sparkles size={16} />}
-          sx={{ bgcolor: "#395B45", "&:hover": { bgcolor: "#2D4A38" }, fontWeight: 600, textTransform: "none", minWidth: 160 }}>
-          Extract Fields ({files.length})
-        </Button>
-      </Box>
     </>
   );
 }
@@ -545,11 +531,11 @@ function ParsingPhase({
       <Box sx={{ textAlign: "center", py: 3 }}>
         <CircularProgress sx={{ color: "#395B45", mb: 1.5 }} size={40} />
         <Typography sx={{ fontWeight: 600, color: "#374151", mb: 0.5 }}>
-          {llmPending ? "Generating AI field mappings…" : `Analysing ${total} file${total !== 1 ? "s" : ""}…`}
+          {llmPending ? "Matching fields…" : `Analysing ${total} file${total !== 1 ? "s" : ""}…`}
         </Typography>
         <Typography variant="body2" sx={{ color: "#9CA3AF" }}>
           {llmPending
-            ? "Sending extracted text to AI — this takes a few seconds"
+            ? "Matching extracted content to form fields…"
             : `${parsed} of ${total} complete${errored > 0 ? ` · ${errored} failed` : ""}`}
         </Typography>
         {!llmPending && (
@@ -609,13 +595,11 @@ interface MappingPhaseProps {
   targets: MappingTarget[];
   assignedKeys: Set<string>;
   onAssign: (pairIndex: number, assignedKey: string) => void;
-  onConfirm: () => void;
-  onBack: () => void;
   files: FileEntry[];
   onViewDebug: (e: FileEntry) => void;
 }
 
-function MappingPhase({ rows, targets, assignedKeys, onAssign, onConfirm, onBack, files, onViewDebug }: MappingPhaseProps) {
+function MappingPhase({ rows, targets, assignedKeys, onAssign, files, onViewDebug }: MappingPhaseProps) {
   const mappedCount  = rows.filter((r) => r.assignedKey !== IGNORE_VALUE).length;
   const ignoredCount = rows.length - mappedCount;
 
@@ -632,10 +616,11 @@ function MappingPhase({ rows, targets, assignedKeys, onAssign, onConfirm, onBack
 
   return (
     <Box>
-      <Box sx={{ display: "flex", gap: 1, mb: 2, flexWrap: "wrap", alignItems: "center" }}>
+      {/* Source file chips + stats in one compact row */}
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5, flexWrap: "wrap" }}>
         {files.filter((f) => f.status === "done").map((entry) => (
           <Chip key={entry.id} icon={<CheckCircle size={12} />}
-            label={`${entry.file.name} · Text extracted`}
+            label={entry.file.name}
             size="small" variant="outlined" color="success"
             onClick={entry.result?.raw_text ? () => onViewDebug(entry) : undefined}
             deleteIcon={entry.result?.raw_text ? <Eye size={12} /> : undefined}
@@ -643,22 +628,21 @@ function MappingPhase({ rows, targets, assignedKeys, onAssign, onConfirm, onBack
             sx={{ fontSize: "0.7rem", height: 22 }}
           />
         ))}
+        <Box sx={{ display: "flex", gap: 1, ml: "auto" }}>
+          {[
+            { value: rows.length,  label: "pairs",  color: "#374151" },
+            { value: mappedCount,  label: "mapped",  color: "#395B45" },
+            { value: ignoredCount, label: "ignored", color: "#9CA3AF" },
+          ].map(({ value, label, color }) => (
+            <Box key={label} sx={{ textAlign: "center", px: 1 }}>
+              <Typography sx={{ fontSize: "1.1rem", fontWeight: 800, color, lineHeight: 1 }}>{value}</Typography>
+              <Typography sx={{ fontSize: "0.65rem", color: "#9CA3AF" }}>{label}</Typography>
+            </Box>
+          ))}
+        </Box>
       </Box>
 
-      <Box sx={{ display: "flex", gap: 2, mb: 2, flexWrap: "wrap" }}>
-        {[
-          { value: rows.length,  label: "Extracted pairs",  color: "#374151" },
-          { value: mappedCount,  label: "AI-mapped fields", color: "#395B45" },
-          { value: ignoredCount, label: "Ignored",          color: "#9CA3AF" },
-        ].map(({ value, label, color }) => (
-          <Paper key={label} variant="outlined" sx={{ flex: 1, minWidth: 100, p: 1.25, borderRadius: 1.5, textAlign: "center" }}>
-            <Typography sx={{ fontSize: "1.4rem", fontWeight: 800, color, lineHeight: 1 }}>{value}</Typography>
-            <Typography variant="caption" sx={{ color: "#6B7280" }}>{label}</Typography>
-          </Paper>
-        ))}
-      </Box>
-
-      <Box sx={{ display: "grid", gridTemplateColumns: "1fr 28px 1fr", gap: 1, px: 1.5, mb: 0.75 }}>
+      <Box sx={{ display: { xs: "none", sm: "grid" }, gridTemplateColumns: "1fr 28px 1fr", gap: 1, px: 1.5, mb: 0.75 }}>
         <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: 0.5 }}>
           Extracted from document
         </Typography>
@@ -678,7 +662,8 @@ function MappingPhase({ rows, targets, assignedKeys, onAssign, onConfirm, onBack
           return (
             <Paper key={row.pairIndex} variant="outlined"
               sx={{
-                display: "grid", gridTemplateColumns: "1fr 28px 1fr",
+                display: "grid",
+                gridTemplateColumns: { xs: "1fr", sm: "1fr 28px 1fr" },
                 gap: 1, p: 1.25, borderRadius: 1.5,
                 borderColor: isMapped ? (isRepeater ? "#C7D2FE" : "#BBF7D0") : "#E5E7EB",
                 bgcolor: isMapped ? (isRepeater ? "#EEF2FF" : "#F0FDF4") : "#FAFAFA",
@@ -699,7 +684,7 @@ function MappingPhase({ rows, targets, assignedKeys, onAssign, onConfirm, onBack
                 )}
               </Box>
 
-              <Box sx={{ display: "flex", justifyContent: "center" }}>
+              <Box sx={{ display: { xs: "none", sm: "flex" }, justifyContent: "center" }}>
                 {isMapped
                   ? <Link2 size={15} color={isRepeater ? "#6366F1" : "#395B45"} />
                   : <Link2Off size={15} color="#D1D5DB" />
@@ -797,14 +782,6 @@ function MappingPhase({ rows, targets, assignedKeys, onAssign, onConfirm, onBack
         })}
       </Box>
 
-      <Box sx={{ display: "flex", justifyContent: "space-between", mt: 2 }}>
-        <Button onClick={onBack} sx={{ color: "#6B7280", fontWeight: 500, textTransform: "none" }}>← Back</Button>
-        <Button variant="contained" onClick={onConfirm} disabled={mappedCount === 0}
-          endIcon={<ArrowRight size={16} />}
-          sx={{ bgcolor: "#395B45", "&:hover": { bgcolor: "#2D4A38" }, fontWeight: 600, textTransform: "none", minWidth: 180 }}>
-          Review {mappedCount} Field{mappedCount !== 1 ? "s" : ""}
-        </Button>
-      </Box>
     </Box>
   );
 }
@@ -820,9 +797,6 @@ interface ReviewPhaseProps {
   excluded: Set<string>;
   onEditValue: (assignedKey: string, value: string) => void;
   onToggleExclude: (assignedKey: string) => void;
-  onApply: () => void;
-  onBack: () => void;
-  onReset: () => void;
   files: FileEntry[];
   onViewDebug: (e: FileEntry) => void;
   warning?: string;
@@ -831,7 +805,6 @@ interface ReviewPhaseProps {
 function ReviewPhase({
   mappedRows, targets, editedValues, excluded,
   onEditValue, onToggleExclude,
-  onApply, onBack, onReset,
   files, onViewDebug, warning,
 }: ReviewPhaseProps) {
   const targetMap = useMemo(() => new Map(targets.map((t) => [t.assignedKey, t])), [targets]);
@@ -865,7 +838,7 @@ function ReviewPhase({
     return (
       <Paper key={row.pairIndex} variant="outlined"
         sx={{
-          p: 1.5, borderRadius: 1.5,
+          p: 1.25, borderRadius: 1.5,
           borderColor: isExcluded ? "#E5E7EB" : isRepeater ? "#C7D2FE" : row.suggestedConfidence >= 0.9 ? "#BBF7D0" : "#FDE68A",
           bgcolor: isExcluded ? "#FAFAFA" : isRepeater ? "#EEF2FF" : row.suggestedConfidence >= 0.9 ? "#F0FDF4" : "#FFFBEB",
           opacity: isExcluded ? 0.55 : 1, transition: "all 0.15s",
@@ -921,10 +894,11 @@ function ReviewPhase({
         <Alert severity="warning" icon={<Info size={16} />} sx={{ mb: 2, borderRadius: 1.5 }}>{warning}</Alert>
       )}
 
-      <Box sx={{ display: "flex", gap: 1, mb: 2, flexWrap: "wrap", alignItems: "center" }}>
+      {/* Compact source chips + stats */}
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5, flexWrap: "wrap" }}>
         {files.filter((f) => f.status === "done").map((entry) => (
           <Chip key={entry.id} icon={<CheckCircle size={12} />}
-            label={`${entry.file.name} · Text extracted`}
+            label={entry.file.name}
             size="small" variant="outlined" color="success"
             onClick={entry.result?.raw_text ? () => onViewDebug(entry) : undefined}
             deleteIcon={entry.result?.raw_text ? <Eye size={12} /> : undefined}
@@ -932,27 +906,23 @@ function ReviewPhase({
             sx={{ fontSize: "0.7rem", height: 22 }}
           />
         ))}
-        {files.some((e) => e.result?.raw_text) && (
-          <Typography variant="caption" sx={{ color: "#9CA3AF", fontSize: "0.7rem" }}>click to view extracted text</Typography>
-        )}
+        <Box sx={{ display: "flex", gap: 1, ml: "auto" }}>
+          {[
+            { value: mappedRows.length, label: "mapped",  color: "#395B45" },
+            { value: highCount,         label: "high conf", color: "#16A34A" },
+            { value: willApply,         label: "applying", color: "#374151" },
+          ].map(({ value, label, color }) => (
+            <Box key={label} sx={{ textAlign: "center", px: 1 }}>
+              <Typography sx={{ fontSize: "1.1rem", fontWeight: 800, color, lineHeight: 1 }}>{value}</Typography>
+              <Typography sx={{ fontSize: "0.65rem", color: "#9CA3AF" }}>{label}</Typography>
+            </Box>
+          ))}
+        </Box>
       </Box>
 
-      <Box sx={{ display: "flex", gap: 2, mb: 2.5, flexWrap: "wrap" }}>
-        {[
-          { value: mappedRows.length, label: "Mapped fields",   color: "#395B45" },
-          { value: highCount,         label: "High confidence", color: "#16A34A" },
-          { value: willApply,         label: "Will be applied", color: "#374151" },
-        ].map(({ value, label, color }) => (
-          <Paper key={label} variant="outlined" sx={{ flex: 1, minWidth: 100, p: 1.5, borderRadius: 1.5, textAlign: "center" }}>
-            <Typography sx={{ fontSize: "1.6rem", fontWeight: 800, color, lineHeight: 1 }}>{value}</Typography>
-            <Typography variant="caption" sx={{ color: "#6B7280" }}>{label}</Typography>
-          </Paper>
-        ))}
-      </Box>
-
-      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1.5 }}>
-        <Typography sx={{ fontWeight: 700, color: "#111827", fontSize: "0.875rem" }}>Review values before applying</Typography>
-        <Typography variant="caption" sx={{ color: "#6B7280" }}>Edit values · uncheck to skip</Typography>
+      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1 }}>
+        <Typography sx={{ fontWeight: 700, color: "#111827", fontSize: "0.82rem" }}>Review values before applying</Typography>
+        <Typography variant="caption" sx={{ color: "#9CA3AF", fontSize: "0.72rem" }}>Edit · uncheck to skip</Typography>
       </Box>
 
       <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
@@ -979,20 +949,6 @@ function ReviewPhase({
         ))}
       </Box>
 
-      <Box sx={{ display: "flex", justifyContent: "space-between", mt: 2 }}>
-        <Box sx={{ display: "flex", gap: 1 }}>
-          <Button onClick={onBack} sx={{ color: "#6B7280", fontWeight: 500, textTransform: "none" }}>← Back to Mapping</Button>
-          <Button onClick={onReset} variant="outlined"
-            sx={{ borderColor: "#D1D5DB", color: "#374151", fontWeight: 500, textTransform: "none" }}>
-            Start Over
-          </Button>
-        </Box>
-        <Button variant="contained" onClick={onApply} disabled={willApply === 0}
-          startIcon={<CheckCircle size={16} />}
-          sx={{ bgcolor: "#395B45", "&:hover": { bgcolor: "#2D4A38" }, fontWeight: 600, textTransform: "none", minWidth: 180 }}>
-          Apply {willApply} Field{willApply !== 1 ? "s" : ""}
-        </Button>
-      </Box>
     </Box>
   );
 }
@@ -1065,6 +1021,9 @@ function DebugViewer({ entry, onClose }: { entry: FileEntry; onClose: () => void
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function AutoFillUploader({ open, onClose, templateFields, onApply }: Props) {
+  const theme   = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm")); // < 600px
+
   const inputRef  = useRef<HTMLInputElement>(null);
   const videoRef  = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -1109,23 +1068,38 @@ export default function AutoFillUploader({ open, onClose, templateFields, onAppl
     setCameraActive(false);
   }, []);
 
-  const startCamera = useCallback(async () => {
+  const startCamera = useCallback(async (fallback = false) => {
     setCameraError("");
+    setCameraActive(false);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } },
-      });
+      const constraints: MediaStreamConstraints = fallback
+        ? { video: true }
+        : { video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } } };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
-      if (videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play(); }
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
       setCameraActive(true);
     } catch (e) {
-      setCameraError(
-        e instanceof DOMException && e.name === "NotAllowedError"
-          ? "Camera access denied. Please allow camera permission in your browser and try again."
-          : e instanceof DOMException && e.name === "NotFoundError"
-          ? "No camera found on this device."
-          : `Could not access camera: ${e instanceof Error ? e.message : String(e)}`,
-      );
+      const name = e instanceof DOMException ? e.name : "";
+      if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+        setCameraError("Camera permission denied. Tap the camera icon in your browser's address bar to allow access, then tap Retry.");
+      } else if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+        setCameraError("No camera found on this device. Use the Upload Files tab to add photos from your gallery instead.");
+      } else if (name === "NotReadableError" || name === "TrackStartError") {
+        setCameraError("Camera is in use by another app. Close it and tap Retry.");
+      } else if ((name === "OverconstrainedError" || name === "ConstraintNotSatisfiedError") && !fallback) {
+        // Retry without constraints — some devices reject HD resolution
+        startCamera(true);
+        return;
+      } else if (name === "NotSupportedError" || name === "TypeError") {
+        setCameraError("Your browser doesn't support camera access. Try uploading a photo from your gallery instead.");
+      } else {
+        setCameraError(`Could not start camera. Try refreshing the page, or upload a photo from your gallery.`);
+      }
       setCameraActive(false);
     }
   }, []);
@@ -1144,14 +1118,41 @@ export default function AutoFillUploader({ open, onClose, templateFields, onAppl
   function capturePhoto() {
     const video = videoRef.current; const canvas = canvasRef.current;
     if (!video || !canvas || !cameraActive) return;
-    canvas.width = video.videoWidth || 1280; canvas.height = video.videoHeight || 720;
-    const ctx = canvas.getContext("2d"); if (!ctx) return;
+
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+
+    // Guard: video stream not ready yet
+    if (!vw || !vh) {
+      setCameraError("Camera isn't ready yet — please wait a moment and try again.");
+      return;
+    }
+
+    // Guard: image too small to be useful (< 100 × 100 px)
+    if (vw < 100 || vh < 100) {
+      setCameraError("Camera resolution is too low. Please try a different camera or move to better lighting.");
+      return;
+    }
+
+    canvas.width = vw;
+    canvas.height = vh;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+
     canvas.toBlob((blob) => {
-      if (!blob) return;
+      // Guard: blob was empty (frame not yet populated)
+      if (!blob || blob.size < 1000) {
+        setCameraError("Photo capture failed — the image was blank or too small. Please try again.");
+        return;
+      }
       const id = uid();
-      setCapturedPhotos((prev) => [...prev, { id, dataUrl, file: new File([blob], `capture-${id}.jpg`, { type: "image/jpeg" }) }]);
+      setCapturedPhotos((prev) => [...prev, {
+        id,
+        dataUrl,
+        file: new File([blob], `capture-${id}.jpg`, { type: "image/jpeg" }),
+      }]);
     }, "image/jpeg", 0.92);
   }
 
@@ -1202,7 +1203,14 @@ export default function AutoFillUploader({ open, onClose, templateFields, onAppl
         }
 
         if (!res.ok) {
-          setFiles((prev) => prev.map((e) => e.id === entry.id ? { ...e, status: "error", error: json?.error ?? `Server error ${res.status}` } : e));
+          const rawError: string = json?.error ?? `Server error ${res.status}`;
+          // Map known server-side error patterns to friendly per-file messages
+          const friendlyError = /not configured|credential|document.?ai/i.test(rawError)
+            ? "This file type is not supported for extraction — upload as DOCX or TXT instead."
+            : /blank|unreadable|no content/i.test(rawError)
+            ? "No readable text found — the image may be blurry or low quality."
+            : rawError;
+          setFiles((prev) => prev.map((e) => e.id === entry.id ? { ...e, status: "error", error: friendlyError } : e));
         } else {
           const data: ParseResponse = json.data;
           completed.push(data);
@@ -1214,7 +1222,37 @@ export default function AutoFillUploader({ open, onClose, templateFields, onAppl
     }
 
     if (!completed.length) {
-      setGlobalError("No files could be parsed. Check errors below and try again.");
+      const IMAGE_EXTS = /\.(jpe?g|png|bmp|tiff?|webp)$/i;
+      const PDF_EXT    = /\.pdf$/i;
+      const failedFiles = files.filter((f) => f.status === "error");
+
+      const allImageFails = failedFiles.length > 0 && failedFiles.every((f) => IMAGE_EXTS.test(f.file.name));
+      const allPdfFails   = failedFiles.length > 0 && failedFiles.every((f) => PDF_EXT.test(f.file.name));
+      const hasCredentialError = failedFiles.some((f) =>
+        /credential|document.?ai|google|ocr|not.?configured|not configured/i.test(f.error ?? ""),
+      );
+      const hasQualityError = failedFiles.some((f) =>
+        /blank|unreadable|no content|scanned|empty/i.test(f.error ?? ""),
+      );
+
+      if (hasCredentialError && (allImageFails || allPdfFails)) {
+        setGlobalError(
+          "Image and PDF extraction is not available on this server. " +
+          "Please upload the document as a DOCX or TXT file instead — these work without any additional setup.",
+        );
+      } else if (allImageFails && hasQualityError) {
+        setGlobalError(
+          "The image could not be read — the text may be too blurry, low-contrast, or the photo was taken in poor lighting. " +
+          "Try again with better lighting and hold the camera steady, or scan the document as a PDF/DOCX.",
+        );
+      } else if (allImageFails) {
+        setGlobalError(
+          "The image could not be processed. Make sure it is a clear, well-lit photo of the document. " +
+          "For the most reliable results, upload a DOCX or PDF version instead.",
+        );
+      } else {
+        setGlobalError("No files could be parsed. Check the individual file errors above and try again.");
+      }
       setPhase("upload");
       return;
     }
@@ -1298,31 +1336,70 @@ export default function AutoFillUploader({ open, onClose, templateFields, onAppl
 
   // ── Render ────────────────────────────────────────────────────────────────
 
+  // Derived counts needed for footer buttons
+  const mappedCount = mappingRows.filter((r) => r.assignedKey !== IGNORE_VALUE).length;
+  const willApply   = mappedRows.filter((r) => !excluded.has(r.assignedKey)).length;
+
   return (
     <>
-      <Dialog open={open} onClose={phase === "parsing" ? undefined : handleClose}
-        maxWidth="md" fullWidth
-        slotProps={{ paper: { sx: { borderRadius: 2.5, minHeight: "65vh" } } }}>
-
-        <DialogTitle sx={{ pb: 0, pt: 2.5, px: 3 }}>
+      <Dialog
+        open={open}
+        onClose={phase === "parsing" ? undefined : handleClose}
+        maxWidth="md"
+        fullWidth
+        fullScreen={isMobile}
+        slotProps={{
+          paper: {
+            sx: {
+              borderRadius: isMobile ? 0 : 2.5,
+              // Desktop: fixed height so only DialogContent scrolls
+              height: isMobile ? "100dvh" : "82vh",
+              maxHeight: isMobile ? "100dvh" : "82vh",
+              display: "flex",
+              flexDirection: "column",
+              m: isMobile ? 0 : undefined,
+              overflow: "hidden",
+            },
+          },
+        }}
+      >
+        {/* ── Pinned header ─────────────────────────────────────────────── */}
+        <DialogTitle sx={{ pb: 0, pt: 2.5, px: { xs: 2, sm: 3 }, flexShrink: 0 }}>
           <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
             <Box>
               <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                <Sparkles size={20} color="#395B45" />
-                <Typography sx={{ fontWeight: 700, fontSize: "1.1rem", color: "#111827" }}>Auto-fill from Documents</Typography>
+                <Wand2 size={20} color="#395B45" />
+                <Typography sx={{ fontWeight: 700, fontSize: { xs: "1rem", sm: "1.1rem" }, color: "#111827" }}>
+                  Auto-fill from Documents
+                </Typography>
               </Box>
-              <Typography variant="caption" sx={{ color: "#6B7280" }}>
-                Upload files · extract text · AI maps fields · review values
+              <Typography variant="caption" sx={{ color: "#6B7280", display: { xs: "none", sm: "block" } }}>
+                Upload files · extract text · match fields · review values
               </Typography>
             </Box>
-            <IconButton onClick={handleClose} disabled={phase === "parsing"} size="small" sx={{ color: "#9CA3AF", mt: -0.5 }}>
+            <IconButton onClick={handleClose} disabled={phase === "parsing"} size="small"
+              sx={{ color: "#9CA3AF", mt: -0.5, minWidth: 36, minHeight: 36 }}>
               <X size={18} />
             </IconButton>
           </Box>
           <StepIndicator current={phase} />
         </DialogTitle>
 
-        <DialogContent sx={{ px: 3, pt: 2.5, pb: 2 }}>
+        {/* ── Scrollable body — only this area scrolls ───────────────────── */}
+        <DialogContent
+          sx={{
+            px: { xs: 2, sm: 3 },
+            pt: 2,
+            pb: 1,
+            flex: 1,
+            overflowY: "auto",
+            // Custom scrollbar on desktop
+            "&::-webkit-scrollbar": { width: 6 },
+            "&::-webkit-scrollbar-track": { bgcolor: "transparent" },
+            "&::-webkit-scrollbar-thumb": { bgcolor: "#D1D5DB", borderRadius: 3 },
+            "&::-webkit-scrollbar-thumb:hover": { bgcolor: "#9CA3AF" },
+          }}
+        >
           {globalError && (
             <Alert severity="error" sx={{ mb: 2, borderRadius: 1.5 }} onClose={() => setGlobalError("")}>
               {globalError}
@@ -1342,9 +1419,7 @@ export default function AutoFillUploader({ open, onClose, templateFields, onAppl
               onCapturePhoto={capturePhoto}
               onRemoveCapture={(id) => setCapturedPhotos((prev) => prev.filter((p) => p.id !== id))}
               onClearCaptures={() => setCapturedPhotos([])}
-              onConfirmCaptures={confirmCaptures}
               onRetryCamera={startCamera}
-              onExtract={handleParseAll}
             />
           )}
 
@@ -1356,8 +1431,6 @@ export default function AutoFillUploader({ open, onClose, templateFields, onAppl
             <MappingPhase
               rows={mappingRows} targets={targets} assignedKeys={assignedKeys}
               onAssign={handleAssign}
-              onConfirm={handleConfirmMapping}
-              onBack={() => setPhase("upload")}
               files={files} onViewDebug={setDebugFile}
             />
           )}
@@ -1372,34 +1445,103 @@ export default function AutoFillUploader({ open, onClose, templateFields, onAppl
                 next.has(key) ? next.delete(key) : next.add(key);
                 return next;
               })}
-              onApply={handleApply}
-              onBack={() => setPhase("mapping")}
-              onReset={reset}
               files={files} onViewDebug={setDebugFile}
               warning={mergedResult?.warning}
             />
           )}
         </DialogContent>
 
-        {phase === "parsing" && (
-          <DialogActions sx={{ px: 3, py: 2, borderTop: "1px solid #F3F4F6", justifyContent: "space-between" }}>
-            <Typography variant="caption" sx={{ color: "#9CA3AF" }}>
-              {llmPending
-                ? "AI is analysing extracted content…"
-                : `${parsedCount} of ${totalCount} complete${errorCount > 0 ? ` · ${errorCount} failed` : ""}`}
-            </Typography>
-            <Button variant="contained" disabled startIcon={<CircularProgress size={16} color="inherit" />}
-              sx={{ bgcolor: "#395B45", fontWeight: 600, textTransform: "none", minWidth: 140 }}>
-              {llmPending ? "AI Mapping…" : "Analysing…"}
-            </Button>
-          </DialogActions>
-        )}
+        {/* ── Pinned footer — all action buttons live here ───────────────── */}
+        <DialogActions
+          sx={{
+            px: { xs: 2, sm: 3 },
+            py: { xs: 1.5, sm: 2 },
+            borderTop: "1px solid #F3F4F6",
+            flexShrink: 0,
+            gap: 1,
+            flexWrap: "wrap",
+            justifyContent:
+              phase === "upload" ? "space-between"
+              : phase === "parsing" ? "space-between"
+              : phase === "mapping" ? "space-between"
+              : "space-between",
+          }}
+        >
+          {/* Upload phase footer */}
+          {phase === "upload" && (
+            <>
+              <Button onClick={handleClose}
+                sx={{ color: "#6B7280", fontWeight: 500, textTransform: "none", minHeight: 44 }}>
+                Cancel
+              </Button>
+              <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+                {uploadTab === "camera" && capturedPhotos.length > 0 && (
+                  <Button variant="outlined" onClick={confirmCaptures} startIcon={<ZoomIn size={16} />}
+                    sx={{ borderColor: "#395B45", color: "#395B45", fontWeight: 600, textTransform: "none", minHeight: 44 }}>
+                    Add {capturedPhotos.length} Photo{capturedPhotos.length !== 1 ? "s" : ""}
+                  </Button>
+                )}
+                <Button variant="contained" onClick={handleParseAll}
+                  disabled={files.length === 0}
+                  startIcon={<Wand2 size={16} />}
+                  sx={{ bgcolor: "#395B45", "&:hover": { bgcolor: "#2D4A38" }, fontWeight: 600, textTransform: "none", minWidth: 160, minHeight: 44 }}>
+                  Extract Fields ({files.length})
+                </Button>
+              </Box>
+            </>
+          )}
 
-        {phase === "upload" && (
-          <DialogActions sx={{ px: 3, py: 2, borderTop: "1px solid #F3F4F6" }}>
-            <Button onClick={handleClose} sx={{ color: "#6B7280", fontWeight: 500, textTransform: "none" }}>Cancel</Button>
-          </DialogActions>
-        )}
+          {/* Parsing phase footer */}
+          {phase === "parsing" && (
+            <>
+              <Typography variant="caption" sx={{ color: "#9CA3AF", alignSelf: "center" }}>
+                {llmPending
+                  ? "Matching fields…"
+                  : `${parsedCount} of ${totalCount} complete${errorCount > 0 ? ` · ${errorCount} failed` : ""}`}
+              </Typography>
+              <Button variant="contained" disabled startIcon={<CircularProgress size={16} color="inherit" />}
+                sx={{ bgcolor: "#395B45", fontWeight: 600, textTransform: "none", minWidth: 140, minHeight: 44 }}>
+                {llmPending ? "Matching…" : "Analysing…"}
+              </Button>
+            </>
+          )}
+
+          {/* Mapping phase footer */}
+          {phase === "mapping" && (
+            <>
+              <Button onClick={() => setPhase("upload")}
+                sx={{ color: "#6B7280", fontWeight: 500, textTransform: "none", minHeight: 44 }}>
+                ← Back
+              </Button>
+              <Button variant="contained" onClick={handleConfirmMapping} disabled={mappedCount === 0}
+                endIcon={<ArrowRight size={16} />}
+                sx={{ bgcolor: "#395B45", "&:hover": { bgcolor: "#2D4A38" }, fontWeight: 600, textTransform: "none", minWidth: 180, minHeight: 44 }}>
+                Review {mappedCount} Field{mappedCount !== 1 ? "s" : ""}
+              </Button>
+            </>
+          )}
+
+          {/* Review phase footer */}
+          {phase === "review" && (
+            <>
+              <Box sx={{ display: "flex", gap: 1 }}>
+                <Button onClick={() => setPhase("mapping")}
+                  sx={{ color: "#6B7280", fontWeight: 500, textTransform: "none", minHeight: 44 }}>
+                  ← Back
+                </Button>
+                <Button onClick={reset} variant="outlined"
+                  sx={{ borderColor: "#D1D5DB", color: "#374151", fontWeight: 500, textTransform: "none", minHeight: 44 }}>
+                  Start Over
+                </Button>
+              </Box>
+              <Button variant="contained" onClick={handleApply} disabled={willApply === 0}
+                startIcon={<CheckCircle size={16} />}
+                sx={{ bgcolor: "#395B45", "&:hover": { bgcolor: "#2D4A38" }, fontWeight: 600, textTransform: "none", minWidth: 180, minHeight: 44 }}>
+                Apply {willApply} Field{willApply !== 1 ? "s" : ""}
+              </Button>
+            </>
+          )}
+        </DialogActions>
       </Dialog>
 
       {debugFile && <DebugViewer entry={debugFile} onClose={() => setDebugFile(null)} />}

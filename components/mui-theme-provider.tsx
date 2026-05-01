@@ -6,6 +6,9 @@ import { ReactNode } from "react";
 import { EmotionCacheProvider } from "./emotion-cache-provider";
 
 const theme = createTheme({
+  breakpoints: {
+    values: { xs: 0, sm: 600, md: 900, lg: 1200, xl: 1536 },
+  },
   palette: {
     primary: {
       main: "#395B45",
@@ -77,19 +80,59 @@ const theme = createTheme({
   components: {
     MuiButton: {
       styleOverrides: {
-        root: {
+        root: ({ theme: t }) => ({
           textTransform: "none",
           fontWeight: 500,
           boxShadow: "none",
           "&:hover": {
             boxShadow: "0px 2px 6px rgba(0, 0, 0, 0.08)",
           },
-        },
+          // Smaller on mobile / tablet
+          [t.breakpoints.down("md")]: {
+            fontSize: "0.8rem",
+            padding: "5px 12px",
+            minHeight: 34,
+          },
+          [t.breakpoints.down("sm")]: {
+            fontSize: "0.75rem",
+            padding: "4px 10px",
+            minHeight: 32,
+          },
+        }),
         contained: {
           "&:hover": {
             boxShadow: "0px 4px 12px rgba(0, 0, 0, 0.1)",
           },
         },
+        sizeSmall: ({ theme: t }) => ({
+          [t.breakpoints.down("md")]: {
+            fontSize: "0.72rem",
+            padding: "3px 8px",
+            minHeight: 28,
+          },
+        }),
+      },
+    },
+    MuiTypography: {
+      styleOverrides: {
+        h5: ({ theme: t }) => ({
+          [t.breakpoints.down("sm")]: { fontSize: "1.1rem" },
+        }),
+        h6: ({ theme: t }) => ({
+          [t.breakpoints.down("sm")]: { fontSize: "0.95rem" },
+        }),
+        subtitle1: ({ theme: t }) => ({
+          [t.breakpoints.down("sm")]: { fontSize: "0.875rem" },
+        }),
+        body1: ({ theme: t }) => ({
+          [t.breakpoints.down("sm")]: { fontSize: "0.85rem" },
+        }),
+        body2: ({ theme: t }) => ({
+          [t.breakpoints.down("sm")]: { fontSize: "0.78rem" },
+        }),
+        caption: ({ theme: t }) => ({
+          [t.breakpoints.down("sm")]: { fontSize: "0.67rem" },
+        }),
       },
     },
     MuiPaper: {

@@ -89,21 +89,21 @@ function StatCard({
   return (
     <Card
       elevation={0}
-      sx={{ border: "1px solid #E5E7EB", borderRadius: 2, flex: "1 1 160px" }}
+      sx={{ border: "1px solid #E5E7EB", borderRadius: 2, flex: "1 1 130px" }}
     >
-      <CardContent sx={{ display: "flex", alignItems: "center", gap: 2, py: "16px !important" }}>
-        <Box sx={{ bgcolor: bg, p: 1.5, borderRadius: 1.5, display: "flex", flexShrink: 0 }}>
+      <CardContent sx={{ display: "flex", alignItems: "center", gap: { xs: 1.5, sm: 2 }, py: "16px !important", px: { xs: 1.5, sm: 2 } }}>
+        <Box sx={{ bgcolor: bg, p: { xs: 1, sm: 1.5 }, borderRadius: 1.5, display: "flex", flexShrink: 0 }}>
           {icon}
         </Box>
-        <Box>
+        <Box sx={{ minWidth: 0 }}>
           {loading ? (
             <Skeleton width={40} height={32} />
           ) : (
-            <Typography variant="h5" sx={{ fontWeight: 700, lineHeight: 1.1, color: "#111827" }}>
+            <Typography variant="h5" sx={{ fontWeight: 700, lineHeight: 1.1, color: "#111827", fontSize: { xs: "1.3rem", sm: "1.5rem" } }}>
               {value}
             </Typography>
           )}
-          <Typography variant="caption" sx={{ color: "#6B7280", fontWeight: 500 }}>
+          <Typography variant="caption" sx={{ color: "#6B7280", fontWeight: 500, fontSize: { xs: "0.68rem", sm: "0.75rem" } }}>
             {label}
           </Typography>
         </Box>
@@ -191,15 +191,15 @@ export default function Dashboard() {
   return (
     <Box>
       {/* ── Header ──────────────────────────────────────────────────────── */}
-      <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", mb: 4 }}>
+      <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", mb: { xs: 2.5, sm: 4 }, gap: 1 }}>
         <Box>
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.5 }}>
             <LayoutDashboard size={20} color="#395B45" />
-            <Typography variant="h5" sx={{ fontWeight: 700, color: "#111827" }}>
+            <Typography variant="h5" sx={{ fontWeight: 700, color: "#111827", fontSize: { xs: "1.15rem", sm: "1.5rem" } }}>
               {greeting()}{userName ? `, ${userName}` : ""}
             </Typography>
           </Box>
-          <Typography variant="body2" sx={{ color: "#6B7280" }}>
+          <Typography variant="body2" sx={{ color: "#6B7280", fontSize: { xs: "0.78rem", sm: "0.875rem" } }}>
             Here&apos;s an overview of your work.
           </Typography>
         </Box>
@@ -207,12 +207,17 @@ export default function Dashboard() {
           component={Link}
           href="/templates"
           variant="contained"
-          startIcon={<Plus size={16} />}
+          size="small"
+          startIcon={<Plus size={15} />}
           sx={{
             bgcolor: "#395B45",
             "&:hover": { bgcolor: "#2D4A38" },
             fontWeight: 600,
             textTransform: "none",
+            flexShrink: 0,
+            fontSize: { xs: "0.75rem", sm: "0.85rem", md: "0.875rem" },
+            px: { xs: 1.5, sm: 2 },
+            py: { xs: "5px", sm: "6px" },
           }}
         >
           New Document
@@ -226,7 +231,7 @@ export default function Dashboard() {
       )}
 
       {/* ── Stat Cards ──────────────────────────────────────────────────── */}
-      <Box sx={{ display: "flex", gap: 2, mb: 4, flexWrap: "wrap" }}>
+      <Box sx={{ display: "flex", gap: { xs: 1.5, sm: 2 }, mb: { xs: 2.5, sm: 4 }, flexWrap: "wrap" }}>
         <StatCard
           label="Saved Drafts"
           value={stats.drafts}
@@ -251,7 +256,7 @@ export default function Dashboard() {
       </Box>
 
       {/* ── Two-column activity ─────────────────────────────────────────── */}
-      <Box sx={{ display: "flex", gap: 3, flexWrap: "wrap", alignItems: "flex-start" }}>
+      <Box sx={{ display: "flex", gap: { xs: 2, sm: 3 }, flexWrap: "wrap", alignItems: "flex-start" }}>
 
         {/* Recent Drafts */}
         <Box sx={{ flex: "1 1 340px", minWidth: 0 }}>
@@ -437,11 +442,11 @@ export default function Dashboard() {
       </Box>
 
       {/* ── Quick Actions ────────────────────────────────────────────────── */}
-      <Box sx={{ mt: 4 }}>
+      <Box sx={{ mt: { xs: 2.5, sm: 4 } }}>
         <Typography variant="subtitle1" sx={{ fontWeight: 700, color: "#111827", mb: 1.5 }}>
           Quick Actions
         </Typography>
-        <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
+        <Box sx={{ display: "flex", gap: { xs: 1.5, sm: 2 }, flexWrap: "wrap" }}>
           {[
             {
               label: "Start New Document",

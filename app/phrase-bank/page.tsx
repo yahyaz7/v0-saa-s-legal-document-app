@@ -16,6 +16,9 @@ import {
   TextField,
   Skeleton,
   Card,
+  useMediaQuery,
+  useTheme,
+  Chip,
 } from "@mui/material";
 import {
   BookOpen,
@@ -41,6 +44,9 @@ interface Category {
 }
 
 export default function PhraseBankPage() {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
@@ -123,7 +129,7 @@ export default function PhraseBankPage() {
   return (
     <Box>
       {/* Page header */}
-      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 4 }}>
+      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: { xs: 2.5, sm: 4 }, gap: 1 }}>
         <Box>
           <Typography variant="h5" sx={{ fontWeight: 700, color: "#111827" }}>Phrase Bank</Typography>
           <Typography variant="body2" sx={{ color: "#6B7280", mt: 0.5 }}>
@@ -132,182 +138,113 @@ export default function PhraseBankPage() {
         </Box>
         <Button
           variant="contained"
-          startIcon={<FolderPlus size={16} />}
+          size="small"
+          startIcon={<FolderPlus size={15} />}
           onClick={() => { setEditCategory({ name: "" }); setCategoryDialogOpen(true); }}
-          sx={{ bgcolor: "#395B45", "&:hover": { bgcolor: "#2D4A38" }, textTransform: "none", fontWeight: 600, borderRadius: 2 }}
+          sx={{ bgcolor: "#395B45", "&:hover": { bgcolor: "#2D4A38" }, textTransform: "none", fontWeight: 600, borderRadius: 2, flexShrink: 0, fontSize: { xs: "0.75rem", sm: "0.85rem", md: "0.875rem" }, px: { xs: 1.5, sm: 2 }, py: { xs: "5px", sm: "6px" } }}
         >
           Add Category
         </Button>
       </Box>
 
-      {/* Two-column layout */}
-      <Box sx={{ display: "flex", gap: 3, alignItems: "flex-start" }}>
-
-        {/* ── Categories column ── */}
-        <Box sx={{ width: 260, flexShrink: 0 }}>
-          <Paper elevation={0} sx={{ border: "1px solid #E5E7EB", borderRadius: 3, overflow: "hidden" }}>
-            <Box sx={{ px: 2, py: 1.5, bgcolor: "#F9FAFB", borderBottom: "1px solid #E5E7EB" }}>
-              <Typography variant="caption" sx={{ fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: 0.5 }}>
-                Categories
-              </Typography>
-            </Box>
-            <List sx={{ p: 0 }}>
-              {loading ? (
-                [1, 2, 3].map((i) => (
-                  <Box key={i} sx={{ px: 2, py: 1.5 }}>
-                    <Skeleton height={20} width="80%" />
-                  </Box>
-                ))
-              ) : categories.length === 0 ? (
-                <Box sx={{ p: 4, textAlign: "center" }}>
-                  <Typography variant="body2" sx={{ color: "#9CA3AF" }}>No categories yet</Typography>
-                </Box>
-              ) : (
-                categories.map((cat) => (
-                  <ListItemButton
-                    key={cat.id}
-                    selected={selectedCategoryId === cat.id}
-                    onClick={() => setSelectedCategoryId(cat.id)}
-                    sx={{
-                      py: 1.25,
-                      px: 2,
-                      borderLeft: "3px solid",
-                      borderColor: selectedCategoryId === cat.id ? "#395B45" : "transparent",
-                      bgcolor: selectedCategoryId === cat.id ? "rgba(57,91,69,0.05)" : "inherit",
-                      "&:hover .cat-actions": { opacity: 1 },
-                    }}
-                  >
-                    <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-                      <Typography variant="body2" sx={{ fontWeight: selectedCategoryId === cat.id ? 700 : 500, color: "#111827" }}>
-                        {cat.name}
-                      </Typography>
-                      <Typography variant="caption" sx={{ color: "#9CA3AF" }}>
-                        {cat.phrases.length} phrase{cat.phrases.length !== 1 ? "s" : ""}
-                      </Typography>
-                    </Box>
-                    <Box className="cat-actions" sx={{ display: "flex", opacity: 0, transition: "opacity 0.15s" }} onClick={(e) => e.stopPropagation()}>
-                      <IconButton
+      {isMobile ? (
+        /* ── Mobile: stacked layout ── */
+        <Box>
+          {/* Category chips strip */}
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="caption" sx={{ fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: 0.5, display: "block", mb: 1 }}>
+              Categories
+            </Typography>
+            {loading ? (
+              <Box sx={{ display: "flex", gap: 1 }}>
+                {[1, 2, 3].map((i) => <Skeleton key={i} width={80} height={32} sx={{ borderRadius: 4 }} />)}
+              </Box>
+            ) : categories.length === 0 ? (
+              <Typography variant="body2" sx={{ color: "#9CA3AF" }}>No categories yet</Typography>
+            ) : (
+              <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+                {categories.map((cat) => {
+                  const isSelected = selectedCategoryId === cat.id;
+                  return (
+                    <Box key={cat.id} sx={{ display: "flex", alignItems: "center" }}>
+                      <Chip
+                        label={`${cat.name} (${cat.phrases.length})`}
+                        onClick={() => setSelectedCategoryId(cat.id)}
                         size="small"
-                        onClick={() => { setEditCategory({ id: cat.id, name: cat.name }); setCategoryDialogOpen(true); }}
-                        sx={{ color: "#6B7280", p: 0.5 }}
-                      >
-                        <Edit2 size={13} />
-                      </IconButton>
-                      <IconButton
-                        size="small"
-                        onClick={() => { setDeleteTarget({ type: "category", id: cat.id }); setDeleteDialogOpen(true); }}
-                        sx={{ color: "#EF4444", p: 0.5 }}
-                      >
-                        <Trash2 size={13} />
-                      </IconButton>
+                        sx={{
+                          fontWeight: isSelected ? 700 : 500,
+                          fontSize: "0.75rem",
+                          bgcolor: isSelected ? "#395B45" : "#F3F4F6",
+                          color: isSelected ? "#fff" : "#374151",
+                          border: isSelected ? "none" : "1px solid #E5E7EB",
+                          "& .MuiChip-label": { px: 1.25 },
+                        }}
+                      />
+                      {isSelected && (
+                        <Box sx={{ display: "flex", ml: 0.25 }}>
+                          <IconButton size="small" onClick={() => { setEditCategory({ id: cat.id, name: cat.name }); setCategoryDialogOpen(true); }} sx={{ color: "#6B7280", p: 0.5 }}>
+                            <Edit2 size={12} />
+                          </IconButton>
+                          <IconButton size="small" onClick={() => { setDeleteTarget({ type: "category", id: cat.id }); setDeleteDialogOpen(true); }} sx={{ color: "#EF4444", p: 0.5 }}>
+                            <Trash2 size={12} />
+                          </IconButton>
+                        </Box>
+                      )}
                     </Box>
-                  </ListItemButton>
-                ))
-              )}
-            </List>
-          </Paper>
-        </Box>
+                  );
+                })}
+              </Box>
+            )}
+          </Box>
 
-        {/* ── Phrases column ── */}
-        <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-          <Paper elevation={0} sx={{ border: "1px solid #E5E7EB", borderRadius: 3, minHeight: 400 }}>
+          {/* Phrases panel */}
+          <Paper elevation={0} sx={{ border: "1px solid #E5E7EB", borderRadius: 2 }}>
             {!selectedCategoryId ? (
-              <Box sx={{
-                py: 16,
-                px: 3,
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "center",
-                textAlign: "center"
-              }}>
-                <Box sx={{ bgcolor: "#F3F4F6", p: 2, borderRadius: "50%", mb: 2, display: "flex" }}>
-                  <BookOpen size={40} color="#9CA3AF" />
+              <Box sx={{ py: 8, px: 2, display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center" }}>
+                <Box sx={{ bgcolor: "#F3F4F6", p: 1.5, borderRadius: "50%", mb: 1.5, display: "flex" }}>
+                  <BookOpen size={28} color="#9CA3AF" />
                 </Box>
-                <Typography variant="subtitle1" sx={{ fontWeight: 600, color: "#4B5563" }}>
-                  No Category Selected
-                </Typography>
-                <Typography variant="body2" sx={{ color: "#9CA3AF", maxWidth: 240 }}>
-                  Select a category from the left to view and manage phrases
-                </Typography>
+                <Typography variant="body2" sx={{ fontWeight: 600, color: "#4B5563" }}>No Category Selected</Typography>
+                <Typography variant="caption" sx={{ color: "#9CA3AF" }}>Tap a category above to see its phrases</Typography>
               </Box>
             ) : (
               <>
-                <Box sx={{ px: 3, py: 2, borderBottom: "1px solid #E5E7EB", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <Box>
-                    <Typography variant="subtitle1" sx={{ fontWeight: 700, color: "#111827" }}>
-                      {activeCategory?.name}
-                    </Typography>
-                    <Typography variant="caption" sx={{ color: "#6B7280" }}>
-                      Phrases available for document automation
-                    </Typography>
-                  </Box>
+                <Box sx={{ px: 2, py: 1.5, borderBottom: "1px solid #E5E7EB", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <Typography variant="body2" sx={{ fontWeight: 700, color: "#111827" }}>{activeCategory?.name}</Typography>
                   <Button
                     variant="outlined"
-                    startIcon={<Plus size={14} />}
                     size="small"
-                    onClick={() => {
-                      setEditPhrase({ category_id: selectedCategoryId, label: "", phrase_text: "" });
-                      setPhraseDialogOpen(true);
-                    }}
-                    sx={{ color: "#395B45", borderColor: "#395B45", textTransform: "none", fontWeight: 600, borderRadius: 2 }}
+                    startIcon={<Plus size={13} />}
+                    onClick={() => { setEditPhrase({ category_id: selectedCategoryId, label: "", phrase_text: "" }); setPhraseDialogOpen(true); }}
+                    sx={{ color: "#395B45", borderColor: "#395B45", textTransform: "none", fontWeight: 600, fontSize: "0.72rem", px: 1, py: "3px" }}
                   >
                     Add Phrase
                   </Button>
                 </Box>
-
-                <Box sx={{ p: 2 }}>
+                <Box sx={{ p: 1.5 }}>
                   {activeCategory?.phrases.length === 0 ? (
-                    <Box sx={{
-                      py: 12,
-                      display: "flex",
-                      flexDirection: "column",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      textAlign: "center"
-                    }}>
-                      <Box sx={{ bgcolor: "#F9FAFB", p: 2, borderRadius: "50%", mb: 2, display: "flex" }}>
-                        <StickyNote size={32} color="#D1D5DB" />
-                      </Box>
-                      <Typography variant="body2" sx={{ color: "#9CA3AF" }}>
-                        No phrases in this category yet
-                      </Typography>
+                    <Box sx={{ py: 6, display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center" }}>
+                      <StickyNote size={28} color="#D1D5DB" style={{ marginBottom: 8 }} />
+                      <Typography variant="body2" sx={{ color: "#9CA3AF" }}>No phrases in this category yet</Typography>
                     </Box>
                   ) : (
                     activeCategory?.phrases.map((phrase) => (
-                      <Card
-                        key={phrase.id}
-                        elevation={0}
-                        sx={{ mb: 2, border: "1px solid #E5E7EB", borderRadius: 2, "&:last-child": { mb: 0 } }}
-                      >
-                        <Box sx={{ p: 2, display: "flex", gap: 2, alignItems: "flex-start" }}>
-                          <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-                            <Typography variant="subtitle2" sx={{ fontWeight: 700, color: "#111827", mb: 0.5 }}>
-                              {phrase.label}
-                            </Typography>
-                            <Typography
-                              variant="body2"
-                              sx={{ whiteSpace: "pre-wrap", color: "#6B7280", lineHeight: 1.6 }}
-                            >
-                              {phrase.phrase_text}
-                            </Typography>
+                      <Card key={phrase.id} elevation={0} sx={{ mb: 1.5, border: "1px solid #E5E7EB", borderRadius: 2, "&:last-child": { mb: 0 } }}>
+                        <Box sx={{ p: 1.5 }}>
+                          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 0.5 }}>
+                            <Typography variant="body2" sx={{ fontWeight: 700, color: "#111827" }}>{phrase.label}</Typography>
+                            <Box sx={{ display: "flex", flexShrink: 0, ml: 1 }}>
+                              <IconButton size="small" onClick={() => { setEditPhrase({ id: phrase.id, category_id: selectedCategoryId, label: phrase.label, phrase_text: phrase.phrase_text }); setPhraseDialogOpen(true); }} sx={{ color: "#6B7280", p: 0.5 }}>
+                                <Edit2 size={13} />
+                              </IconButton>
+                              <IconButton size="small" onClick={() => { setDeleteTarget({ type: "phrase", id: phrase.id }); setDeleteDialogOpen(true); }} sx={{ color: "#EF4444", p: 0.5 }}>
+                                <Trash2 size={13} />
+                              </IconButton>
+                            </Box>
                           </Box>
-                          <Box sx={{ display: "flex", flexShrink: 0, gap: 0.5 }}>
-                            <IconButton
-                              size="small"
-                              onClick={() => { setEditPhrase({ id: phrase.id, category_id: selectedCategoryId, label: phrase.label, phrase_text: phrase.phrase_text }); setPhraseDialogOpen(true); }}
-                              sx={{ color: "#6B7280", "&:hover": { bgcolor: "#F3F4F6" } }}
-                            >
-                              <Edit2 size={14} />
-                            </IconButton>
-                            <IconButton
-                              size="small"
-                              onClick={() => { setDeleteTarget({ type: "phrase", id: phrase.id }); setDeleteDialogOpen(true); }}
-                              sx={{ color: "#EF4444", "&:hover": { bgcolor: "#FEF2F2" } }}
-                            >
-                              <Trash2 size={14} />
-                            </IconButton>
-                          </Box>
+                          <Typography variant="caption" sx={{ color: "#6B7280", whiteSpace: "pre-wrap", lineHeight: 1.6, display: "block" }}>
+                            {phrase.phrase_text}
+                          </Typography>
                         </Box>
                       </Card>
                     ))
@@ -317,7 +254,132 @@ export default function PhraseBankPage() {
             )}
           </Paper>
         </Box>
-      </Box>
+      ) : (
+        /* ── Desktop: two-column layout (unchanged) ── */
+        <Box sx={{ display: "flex", gap: 3, alignItems: "flex-start" }}>
+
+          {/* ── Categories column ── */}
+          <Box sx={{ width: 260, flexShrink: 0 }}>
+            <Paper elevation={0} sx={{ border: "1px solid #E5E7EB", borderRadius: 3, overflow: "hidden" }}>
+              <Box sx={{ px: 2, py: 1.5, bgcolor: "#F9FAFB", borderBottom: "1px solid #E5E7EB" }}>
+                <Typography variant="caption" sx={{ fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: 0.5 }}>
+                  Categories
+                </Typography>
+              </Box>
+              <List sx={{ p: 0 }}>
+                {loading ? (
+                  [1, 2, 3].map((i) => (
+                    <Box key={i} sx={{ px: 2, py: 1.5 }}>
+                      <Skeleton height={20} width="80%" />
+                    </Box>
+                  ))
+                ) : categories.length === 0 ? (
+                  <Box sx={{ p: 4, textAlign: "center" }}>
+                    <Typography variant="body2" sx={{ color: "#9CA3AF" }}>No categories yet</Typography>
+                  </Box>
+                ) : (
+                  categories.map((cat) => (
+                    <ListItemButton
+                      key={cat.id}
+                      selected={selectedCategoryId === cat.id}
+                      onClick={() => setSelectedCategoryId(cat.id)}
+                      sx={{
+                        py: 1.25,
+                        px: 2,
+                        borderLeft: "3px solid",
+                        borderColor: selectedCategoryId === cat.id ? "#395B45" : "transparent",
+                        bgcolor: selectedCategoryId === cat.id ? "rgba(57,91,69,0.05)" : "inherit",
+                        "&:hover .cat-actions": { opacity: 1 },
+                      }}
+                    >
+                      <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+                        <Typography variant="body2" sx={{ fontWeight: selectedCategoryId === cat.id ? 700 : 500, color: "#111827" }}>
+                          {cat.name}
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: "#9CA3AF" }}>
+                          {cat.phrases.length} phrase{cat.phrases.length !== 1 ? "s" : ""}
+                        </Typography>
+                      </Box>
+                      <Box className="cat-actions" sx={{ display: "flex", opacity: 0, transition: "opacity 0.15s" }} onClick={(e) => e.stopPropagation()}>
+                        <IconButton size="small" onClick={() => { setEditCategory({ id: cat.id, name: cat.name }); setCategoryDialogOpen(true); }} sx={{ color: "#6B7280", p: 0.5 }}>
+                          <Edit2 size={13} />
+                        </IconButton>
+                        <IconButton size="small" onClick={() => { setDeleteTarget({ type: "category", id: cat.id }); setDeleteDialogOpen(true); }} sx={{ color: "#EF4444", p: 0.5 }}>
+                          <Trash2 size={13} />
+                        </IconButton>
+                      </Box>
+                    </ListItemButton>
+                  ))
+                )}
+              </List>
+            </Paper>
+          </Box>
+
+          {/* ── Phrases column ── */}
+          <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+            <Paper elevation={0} sx={{ border: "1px solid #E5E7EB", borderRadius: 3, minHeight: 400 }}>
+              {!selectedCategoryId ? (
+                <Box sx={{ py: 16, px: 3, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center" }}>
+                  <Box sx={{ bgcolor: "#F3F4F6", p: 2, borderRadius: "50%", mb: 2, display: "flex" }}>
+                    <BookOpen size={40} color="#9CA3AF" />
+                  </Box>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 600, color: "#4B5563" }}>No Category Selected</Typography>
+                  <Typography variant="body2" sx={{ color: "#9CA3AF", maxWidth: 240 }}>
+                    Select a category from the left to view and manage phrases
+                  </Typography>
+                </Box>
+              ) : (
+                <>
+                  <Box sx={{ px: 3, py: 2, borderBottom: "1px solid #E5E7EB", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <Box>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 700, color: "#111827" }}>{activeCategory?.name}</Typography>
+                      <Typography variant="caption" sx={{ color: "#6B7280" }}>Phrases available for document automation</Typography>
+                    </Box>
+                    <Button
+                      variant="outlined"
+                      startIcon={<Plus size={14} />}
+                      size="small"
+                      onClick={() => { setEditPhrase({ category_id: selectedCategoryId, label: "", phrase_text: "" }); setPhraseDialogOpen(true); }}
+                      sx={{ color: "#395B45", borderColor: "#395B45", textTransform: "none", fontWeight: 600, borderRadius: 2 }}
+                    >
+                      Add Phrase
+                    </Button>
+                  </Box>
+                  <Box sx={{ p: 2 }}>
+                    {activeCategory?.phrases.length === 0 ? (
+                      <Box sx={{ py: 12, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center" }}>
+                        <Box sx={{ bgcolor: "#F9FAFB", p: 2, borderRadius: "50%", mb: 2, display: "flex" }}>
+                          <StickyNote size={32} color="#D1D5DB" />
+                        </Box>
+                        <Typography variant="body2" sx={{ color: "#9CA3AF" }}>No phrases in this category yet</Typography>
+                      </Box>
+                    ) : (
+                      activeCategory?.phrases.map((phrase) => (
+                        <Card key={phrase.id} elevation={0} sx={{ mb: 2, border: "1px solid #E5E7EB", borderRadius: 2, "&:last-child": { mb: 0 } }}>
+                          <Box sx={{ p: 2, display: "flex", gap: 2, alignItems: "flex-start" }}>
+                            <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+                              <Typography variant="subtitle2" sx={{ fontWeight: 700, color: "#111827", mb: 0.5 }}>{phrase.label}</Typography>
+                              <Typography variant="body2" sx={{ whiteSpace: "pre-wrap", color: "#6B7280", lineHeight: 1.6 }}>{phrase.phrase_text}</Typography>
+                            </Box>
+                            <Box sx={{ display: "flex", flexShrink: 0, gap: 0.5 }}>
+                              <IconButton size="small" onClick={() => { setEditPhrase({ id: phrase.id, category_id: selectedCategoryId, label: phrase.label, phrase_text: phrase.phrase_text }); setPhraseDialogOpen(true); }} sx={{ color: "#6B7280", "&:hover": { bgcolor: "#F3F4F6" } }}>
+                                <Edit2 size={14} />
+                              </IconButton>
+                              <IconButton size="small" onClick={() => { setDeleteTarget({ type: "phrase", id: phrase.id }); setDeleteDialogOpen(true); }} sx={{ color: "#EF4444", "&:hover": { bgcolor: "#FEF2F2" } }}>
+                                <Trash2 size={14} />
+                              </IconButton>
+                            </Box>
+                          </Box>
+                        </Card>
+                      ))
+                    )}
+                  </Box>
+                </>
+              )}
+            </Paper>
+          </Box>
+        </Box>
+      )}
 
       {/* Category dialog */}
       <Dialog open={categoryDialogOpen} onClose={() => setCategoryDialogOpen(false)} fullWidth maxWidth="xs" PaperProps={{ sx: { borderRadius: 3 } }}>

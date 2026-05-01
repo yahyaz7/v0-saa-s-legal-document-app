@@ -123,7 +123,7 @@ export default function AdminUsersPage() {
 
   return (
     <Box>
-      <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", mb: 4 }}>
+      <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", mb: { xs: 2.5, sm: 4 }, gap: 1 }}>
         <Box>
           <Typography variant="h5" sx={{ fontWeight: 700, color: "#111827" }}>Team</Typography>
           <Typography variant="body2" sx={{ color: "#6B7280", mt: 0.5 }}>
@@ -132,9 +132,10 @@ export default function AdminUsersPage() {
         </Box>
         <Button
           variant="contained"
-          startIcon={<UserPlus size={16} />}
+          size="small"
+          startIcon={<UserPlus size={15} />}
           onClick={() => { resetDialog(); setDialogOpen(true); }}
-          sx={{ bgcolor: "#395B45", "&:hover": { bgcolor: "#2D4A38" }, fontWeight: 600 }}
+          sx={{ bgcolor: "#395B45", "&:hover": { bgcolor: "#2D4A38" }, fontWeight: 600, textTransform: "none", flexShrink: 0, fontSize: { xs: "0.75rem", sm: "0.85rem", md: "0.875rem" }, px: { xs: 1.5, sm: 2 }, py: { xs: "5px", sm: "6px" } }}
         >
           Add Staff
         </Button>
