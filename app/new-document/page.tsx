@@ -22,12 +22,13 @@ import {
   DialogContent,
   DialogActions,
 } from "@mui/material";
-import { FileDown, Save, Check, ChevronDown, Plus, Sparkles } from "lucide-react";
+import { FileDown, Save, Check, ChevronDown, Plus, Sparkles, BookOpen } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { DynamicField, TemplateFieldDef, FieldValue } from "@/components/dynamic-field";
 import { saveDraft, loadDraft, DraftFormData } from "@/lib/drafts";
 import AutoFillUploader, { ApplyValues } from "@/components/AutoFillUploader";
+import LegalAdviceModal from "@/components/LegalAdviceModal";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -113,6 +114,30 @@ function DocumentBuilderContent() {
   // Auto-fill uploader
   const [autoFillOpen, setAutoFillOpen] = useState(false);
   const [autoFilledKeys, setAutoFilledKeys] = useState<Set<string>>(new Set());
+
+  // Legal advice modal
+  const [legalAdviceOpen, setLegalAdviceOpen] = useState(false);
+
+  // Offences extracted from the form — pulled from any repeater with an offence sub-field
+  const extractedOffences = useMemo<string[]>(() => {
+    const offences: string[] = [];
+    for (const field of templateFields) {
+      if (field.field_type !== "repeater") continue;
+      const rows = formValues[field.field_key];
+      if (!Array.isArray(rows)) continue;
+      for (const row of rows as Record<string, unknown>[]) {
+        const offenceKey = Object.keys(row).find((k) => /offence|offen/i.test(k));
+        if (!offenceKey) continue;
+        const val = row[offenceKey];
+        if (Array.isArray(val)) {
+          val.forEach((v) => { if (typeof v === "string" && v.trim()) offences.push(v.trim()); });
+        } else if (typeof val === "string" && val.trim()) {
+          offences.push(val.trim());
+        }
+      }
+    }
+    return [...new Set(offences)];
+  }, [templateFields, formValues]);
 
   // Add Phrase dialog
   const [addPhraseOpen, setAddPhraseOpen] = useState(false);
@@ -517,20 +542,36 @@ function DocumentBuilderContent() {
           </Typography>
         </Box>
         {!loading && !fetchError && templateFields.length > 0 && (
-          <Button
-            variant="outlined"
-            startIcon={<Sparkles size={16} />}
-            onClick={() => setAutoFillOpen(true)}
-            sx={{
-              borderColor: "#395B45",
-              color: "#395B45",
-              fontWeight: 600,
-              textTransform: "none",
-              "&:hover": { borderColor: "#2D4A38", bgcolor: "rgba(57,91,69,0.04)" },
-            }}
-          >
-            Auto-fill from Document
-          </Button>
+          <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+            <Button
+              variant="outlined"
+              startIcon={<BookOpen size={16} />}
+              onClick={() => setLegalAdviceOpen(true)}
+              sx={{
+                borderColor: "#395B45",
+                color: "#395B45",
+                fontWeight: 600,
+                textTransform: "none",
+                "&:hover": { borderColor: "#2D4A38", bgcolor: "rgba(57,91,69,0.04)" },
+              }}
+            >
+              Phrase Builder
+            </Button>
+            <Button
+              variant="outlined"
+              startIcon={<Sparkles size={16} />}
+              onClick={() => setAutoFillOpen(true)}
+              sx={{
+                borderColor: "#395B45",
+                color: "#395B45",
+                fontWeight: 600,
+                textTransform: "none",
+                "&:hover": { borderColor: "#2D4A38", bgcolor: "rgba(57,91,69,0.04)" },
+              }}
+            >
+              Auto-fill from Document
+            </Button>
+          </Box>
         )}
       </Box>
 
@@ -945,6 +986,13 @@ function DocumentBuilderContent() {
           field_options: f.field_options,
         }))}
         onApply={handleAutoFillApply}
+      />
+
+      {/* Legal advice modal */}
+      <LegalAdviceModal
+        open={legalAdviceOpen}
+        onClose={() => setLegalAdviceOpen(false)}
+        extractedOffences={extractedOffences}
       />
     </Box>
   );
