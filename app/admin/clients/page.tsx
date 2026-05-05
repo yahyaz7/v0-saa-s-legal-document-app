@@ -75,7 +75,7 @@ function formatDate(iso: string): string {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-export default function StaffClientsPage() {
+export default function ClientsPage() {
   const [clients, setClients]         = useState<Client[]>([]);
   const [loading, setLoading]         = useState(true);
   const [search, setSearch]           = useState("");
@@ -90,7 +90,7 @@ export default function StaffClientsPage() {
   const [saving, setSaving]           = useState(false);
   const [dialogError, setDialogError] = useState("");
 
-  // Delete client confirm
+  // Delete confirm
   const [deleteId, setDeleteId]       = useState<string | null>(null);
   const [deleting, setDeleting]       = useState(false);
 
@@ -198,7 +198,7 @@ export default function StaffClientsPage() {
     setSaving(false);
   }
 
-  // ── Delete client ────────────────────────────────────────────────────────
+  // ── Delete ───────────────────────────────────────────────────────────────
 
   async function handleDelete() {
     if (!deleteId) return;
@@ -209,7 +209,7 @@ export default function StaffClientsPage() {
       await loadClients(search);
       showSuccess("Client deleted.");
     } else {
-      const json = await res.json().catch(() => ({}));
+      const json = await res.json();
       setError(json.error ?? "Failed to delete client.");
     }
     setDeleting(false);
@@ -233,6 +233,7 @@ export default function StaffClientsPage() {
     }
 
     await loadClients(search);
+    // Refresh active client in view dialog
     if (activeClient?.id === clientId) {
       const fresh = await fetch(`/api/clients/${clientId}`);
       if (fresh.ok) {

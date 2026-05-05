@@ -20,6 +20,7 @@ import {
   FileText,
   ArrowRight,
   LayoutDashboard,
+  UserRound,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
@@ -203,25 +204,41 @@ export default function Dashboard() {
             Here&apos;s an overview of your work.
           </Typography>
         </Box>
-        <Button
-          component={Link}
-          href="/templates"
-          variant="contained"
-          size="small"
-          startIcon={<Plus size={15} />}
-          sx={{
-            bgcolor: "#395B45",
-            "&:hover": { bgcolor: "#2D4A38" },
-            fontWeight: 600,
-            textTransform: "none",
-            flexShrink: 0,
-            fontSize: { xs: "0.75rem", sm: "0.85rem", md: "0.875rem" },
-            px: { xs: 1.5, sm: 2 },
-            py: { xs: "5px", sm: "6px" },
-          }}
-        >
-          New Document
-        </Button>
+        <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <Button
+            component={Link}
+            href="/clients"
+            variant="outlined"
+            size="small"
+            startIcon={<UserRound size={15} />}
+            sx={{
+              borderColor: "#395B45", color: "#395B45", "&:hover": { bgcolor: "rgba(57,91,69,0.06)" },
+              fontWeight: 600, textTransform: "none", flexShrink: 0,
+              fontSize: { xs: "0.75rem", sm: "0.85rem" }, px: { xs: 1.5, sm: 2 }, py: { xs: "5px", sm: "6px" },
+            }}
+          >
+            Add Clients
+          </Button>
+          <Button
+            component={Link}
+            href="/templates"
+            variant="contained"
+            size="small"
+            startIcon={<Plus size={15} />}
+            sx={{
+              bgcolor: "#395B45",
+              "&:hover": { bgcolor: "#2D4A38" },
+              fontWeight: 600,
+              textTransform: "none",
+              flexShrink: 0,
+              fontSize: { xs: "0.75rem", sm: "0.85rem", md: "0.875rem" },
+              px: { xs: 1.5, sm: 2 },
+              py: { xs: "5px", sm: "6px" },
+            }}
+          >
+            New Document
+          </Button>
+        </Box>
       </Box>
 
       {error && (

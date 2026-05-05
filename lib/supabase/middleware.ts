@@ -47,9 +47,20 @@ export async function updateSession(request: NextRequest) {
 
   // Redirect authenticated users away from login
   if (user && pathname === "/login") {
+    const role = user.app_metadata?.role as string | undefined;
     const url = request.nextUrl.clone();
-    url.pathname = "/";
+    url.pathname = role === "super_admin" ? "/super-admin" : role === "admin" ? "/admin" : "/";
     return NextResponse.redirect(url);
+  }
+
+  // Redirect admins who land on the staff dashboard to the admin dashboard
+  if (user && pathname === "/") {
+    const role = user.app_metadata?.role as string | undefined;
+    if (role === "admin" || role === "super_admin") {
+      const url = request.nextUrl.clone();
+      url.pathname = role === "super_admin" ? "/super-admin" : "/admin";
+      return NextResponse.redirect(url);
+    }
   }
 
   return supabaseResponse;

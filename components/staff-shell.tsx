@@ -31,6 +31,7 @@ import {
   Scale,
   Menu as MenuIcon,
   X,
+  UserRound,
 } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -39,6 +40,7 @@ const DRAWER_WIDTH = 240;
 
 const navItems = [
   { label: "Dashboard",    href: "/",              icon: LayoutDashboard },
+  { label: "Clients",      href: "/clients",       icon: UserRound },
   { label: "Templates",    href: "/templates",     icon: FileText },
   { label: "My Documents", href: "/documents",     icon: FolderOpen },
   { label: "Phrase Bank",  href: "/phrase-bank",   icon: BookOpen },
