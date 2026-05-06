@@ -28,6 +28,7 @@ import {
 import { FileText, Plus, Trash2, Eye, X, CheckCircle2, Pencil, PlayCircle, FilePlus } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
+import DocWizardButton from "@/components/DocWizardButton";
 import dynamic from "next/dynamic";
 const DynamicFormEngine = dynamic(() => import("@/components/dynamic-form-engine"), {
   ssr: false,
@@ -94,16 +95,19 @@ function AdminTemplatesContent() {
             Create and manage document templates for your firm
           </Typography>
         </Box>
-        <Button
-          component={Link}
-          href="/admin/templates/manage"
-          variant="contained"
-          size="small"
-          startIcon={<Plus size={15} />}
-          sx={{ bgcolor: "#395B45", "&:hover": { bgcolor: "#2D4A38" }, fontWeight: 600, textTransform: "none", borderRadius: 2, flexShrink: 0, fontSize: { xs: "0.75rem", sm: "0.85rem", md: "0.875rem" }, px: { xs: 1.5, sm: 2 }, py: { xs: "5px", sm: "6px" } }}
-        >
-          New Template
-        </Button>
+        <Box sx={{ display: "flex", gap: 1, flexShrink: 0 }}>
+          <DocWizardButton variant="outlined" />
+          <Button
+            component={Link}
+            href="/admin/templates/manage"
+            variant="contained"
+            size="small"
+            startIcon={<Plus size={15} />}
+            sx={{ bgcolor: "#395B45", "&:hover": { bgcolor: "#2D4A38" }, fontWeight: 600, textTransform: "none", borderRadius: 2, flexShrink: 0, fontSize: { xs: "0.75rem", sm: "0.85rem", md: "0.875rem" }, px: { xs: 1.5, sm: 2 }, py: { xs: "5px", sm: "6px" } }}
+          >
+            New Template
+          </Button>
+        </Box>
       </Box>
 
       {/* Success banner */}

@@ -36,6 +36,7 @@ import {
   Menu as MenuIcon,
   X,
   UserRound,
+  ShieldCheck,
 } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -49,6 +50,7 @@ const navItems = [
   { label: "Phrase Bank",   href: "/admin/phrase-bank",    icon: BookOpen },
   { label: "Offences",      href: "/admin/offences",       icon: Scale },
   { label: "Documents",     href: "/admin/documents",      icon: FolderOpen },
+  { label: "Audit Vault",   href: "/admin/audit-files",    icon: ShieldCheck },
   { label: "Analytics",     href: "/admin/analytics",      icon: BarChart2 },
   { label: "Team",          href: "/admin/users",          icon: Users },
   { label: "Firm Settings", href: "/admin/settings",       icon: Settings2 },

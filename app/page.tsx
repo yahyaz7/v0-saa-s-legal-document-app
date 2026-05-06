@@ -25,6 +25,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import DocWizardButton from "@/components/DocWizardButton";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -219,6 +220,7 @@ export default function Dashboard() {
           >
             Add Clients
           </Button>
+          <DocWizardButton variant="outlined" />
           <Button
             component={Link}
             href="/templates"

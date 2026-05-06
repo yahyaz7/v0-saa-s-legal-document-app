@@ -16,6 +16,7 @@ import {
 import { FileText } from "lucide-react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import DocWizardButton from "@/components/DocWizardButton";
 
 interface Template {
   id: string;
@@ -57,6 +58,7 @@ export default function TemplatesPage() {
             Select a template to create a new document.
           </Typography>
         </Box>
+        <DocWizardButton variant="outlined" />
       </Box>
 
       {/* States */}
